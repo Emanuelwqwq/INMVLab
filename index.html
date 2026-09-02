@@ -10,11 +10,13 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <link rel="stylesheet" href="styles.css">
-<style>.location-button{background:transparent;border:1px solid #52616a;color:#dce0dc;cursor:pointer;font-size:10px;margin-top:9px;padding:7px;text-align:left}.location-button:hover{border-color:var(--coral);color:#fff}@media(max-width:700px){.sidebar{display:flex;left:-285px;transition:left .25s ease;width:250px}.sidebar.mobile-open{left:0}}</style>
+<style>.location-button{background:transparent;border:1px solid #52616a;color:#dce0dc;cursor:pointer;font-size:10px;margin-top:9px;padding:7px;text-align:left}.location-button:hover{border-color:var(--coral);color:#fff}.map-placeholder{height:210px}.leaflet-container{font-family:"DM Sans",sans-serif}.threshold-settings{border-top:1px solid var(--line);display:flex;flex-direction:column;gap:9px;margin-top:20px;padding-top:18px}.threshold-settings label{align-items:center;color:var(--muted);display:flex;font-size:11px;gap:6px;justify-content:space-between}.threshold-settings input{border:1px solid var(--line);padding:7px;width:70px}@media(max-width:700px){.sidebar{display:flex;left:-285px;transition:left .25s ease;width:250px}.sidebar.mobile-open{left:0}}</style>
 </head>
 <body>
 <aside class="sidebar">
