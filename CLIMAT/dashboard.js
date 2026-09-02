@@ -9,13 +9,25 @@ const firebaseConfig = {
 };
 
 firebase.initializeApp(firebaseConfig);
-const db = firebase.database();
-const TEMP_PATH = "temperatura";
-const HUM_PATH = "umidade";
+const db = firebase.firestore();
+const READINGS_COLLECTION = "leituras";
 let lastTemp = null, lastHum = null;
 let history = { labels: [], temp: [], hum: [] };
 const MAX_POINTS = 20;
 const ctx = document.getElementById('historyChart').getContext('2d');
+const navLinks = document.querySelectorAll('nav a[href^="#"]');
+
+navLinks.forEach(link => {
+  link.addEventListener('click', event => {
+    event.preventDefault();
+    const target = document.querySelector(link.getAttribute('href'));
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    navLinks.forEach(item => item.classList.remove('active'));
+    link.classList.add('active');
+  });
+});
+
 const chart = new Chart(ctx, { type: 'line', data: { labels: history.labels, datasets: [
   { label: 'Temperatura °C', data: history.temp, borderColor: '#9b82ff', backgroundColor: 'rgba(155,130,255,.15)', tension: .35, pointRadius: 3, yAxisID: 'y' },
   { label: 'Umidade %', data: history.hum, borderColor: '#4fa3ff', backgroundColor: 'rgba(79,163,255,.15)', tension: .35, pointRadius: 3, yAxisID: 'y1' }
@@ -31,8 +43,8 @@ function updateComfortUI(score){ document.getElementById('comfortValue').textCon
 function updateAlerts(t, h){ const list = document.getElementById('alertList'); const items = []; if (h > 70) items.push({icon:'⚠️', title:'Umidade elevada', sub:'Acima da faixa confortável'}); if (h < 30) items.push({icon:'⚠️', title:'Umidade baixa', sub:'Abaixo da faixa confortável'}); if (t > 30) items.push({icon:'🔥', title:'Temperatura alta', sub:'Ambiente pode estar quente'}); if (t < 18) items.push({icon:'❄️', title:'Temperatura baixa', sub:'Ambiente pode estar frio'}); items.push({icon:'✅', title:'Sistema funcionando', sub:'ESP32 conectado'}); list.innerHTML = items.map(i => `<div class="alert-item"><div class="left"><span class="icon">${i.icon}</span><div><div class="a-title">${i.title}</div><div class="a-sub">${i.sub}</div></div></div><div class="time">Agora</div></div>`).join(''); const count = items.length - 1; document.getElementById('alertBadge').textContent = count; document.getElementById('alertCount').textContent = count; }
 function updateRecommendation(t, h){ const title = document.getElementById('recoTitle'); const text = document.getElementById('recoText'); if (t >= 20 && t <= 26 && h >= 40 && h <= 60){ title.textContent = 'Ambiente agradável'; text.textContent = 'As condições atuais estão adequadas. Continue acompanhando as próximas medições.'; } else if (h > 70){ title.textContent = 'Umidade alta detectada'; text.textContent = 'Considere ventilar o ambiente ou usar um desumidificador.'; } else if (t > 30){ title.textContent = 'Temperatura elevada'; text.textContent = 'Considere ventilação ou climatização do ambiente.'; } else { title.textContent = 'Atenção às condições'; text.textContent = 'Os valores estão fora da faixa ideal de conforto.'; } }
 function runAnalysis(){ if (lastTemp === null || lastHum === null) return; const box = document.getElementById('analysisBox'); const txt = document.getElementById('analysisText'); const comfort = computeComfort(lastTemp, lastHum); if (comfort >= 75){ box.firstChild.textContent = 'Ambiente confortável'; txt.textContent = `A temperatura de ${lastTemp}°C e a umidade de ${lastHum}% estão dentro de uma faixa confortável.`; } else if (comfort >= 50){ box.firstChild.textContent = 'Ambiente moderado'; txt.textContent = `Temperatura de ${lastTemp}°C e umidade de ${lastHum}% estão levemente fora do ideal.`; } else { box.firstChild.textContent = 'Ambiente desconfortável'; txt.textContent = `Temperatura de ${lastTemp}°C e umidade de ${lastHum}% estão fora da faixa recomendada.`; } }
-function pushHistory(t, h){ history.labels.push(fmtTime()); history.temp.push(t); history.hum.push(h); if (history.labels.length > MAX_POINTS){ history.labels.shift(); history.temp.shift(); history.hum.shift(); } chart.update(); }
-function handleReading(){ if (lastTemp === null || lastHum === null) return; document.getElementById('tempValue').textContent = lastTemp.toFixed(1); document.getElementById('humValue').textContent = Math.round(lastHum); document.getElementById('lastUpdate').textContent = fmtTime(); document.getElementById('fbCheck').textContent = '✓'; updateComfortUI(computeComfort(lastTemp, lastHum)); updateAlerts(lastTemp, lastHum); updateRecommendation(lastTemp, lastHum); pushHistory(lastTemp, lastHum); runAnalysis(); document.getElementById('connPill').innerHTML = '<span class="dot"></span> Sistema conectado'; document.getElementById('connPill').classList.remove('offline'); document.getElementById('statusDot').style.background = 'var(--green)'; document.getElementById('statusText').textContent = 'Estação online'; document.getElementById('stationState').textContent = 'ONLINE'; document.getElementById('stationState').style.color = 'var(--green)'; }
+function getReadingTime(timestamp){ if (timestamp && typeof timestamp.toDate === 'function') return timestamp.toDate(); if (timestamp instanceof Date) return timestamp; if (typeof timestamp === 'number') return new Date(timestamp > 10000000000 ? timestamp : timestamp * 1000); return new Date(); }
+function updateHistory(snapshot){ history.labels = []; history.temp = []; history.hum = []; snapshot.docs.slice().reverse().forEach(doc => { const data = doc.data(); history.labels.push(getReadingTime(data.timestamp).toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit',second:'2-digit'})); history.temp.push(Number(data.temperatura)); history.hum.push(Number(data.umidade)); }); chart.data.labels = history.labels; chart.data.datasets[0].data = history.temp; chart.data.datasets[1].data = history.hum; chart.update(); }
+function handleReading(){ if (lastTemp === null || lastHum === null) return; document.getElementById('tempValue').textContent = lastTemp.toFixed(1); document.getElementById('humValue').textContent = Math.round(lastHum); document.getElementById('lastUpdate').textContent = fmtTime(); document.getElementById('fbCheck').textContent = '✓'; updateComfortUI(computeComfort(lastTemp, lastHum)); updateAlerts(lastTemp, lastHum); updateRecommendation(lastTemp, lastHum); runAnalysis(); document.getElementById('connPill').innerHTML = '<span class="dot"></span> Sistema conectado'; document.getElementById('connPill').classList.remove('offline'); document.getElementById('statusDot').style.background = 'var(--green)'; document.getElementById('statusText').textContent = 'Estação online'; document.getElementById('stationState').textContent = 'ONLINE'; document.getElementById('stationState').style.color = 'var(--green)'; }
 function showOffline(){ document.getElementById('connPill').innerHTML = '<span class="dot"></span> Sem conexão'; document.getElementById('connPill').classList.add('offline'); document.getElementById('statusDot').style.background = 'var(--red)'; document.getElementById('statusText').textContent = 'Estação offline'; document.getElementById('stationState').textContent = 'OFFLINE'; document.getElementById('stationState').style.color = 'var(--red)'; }
-db.ref(TEMP_PATH).on('value', snap => { const v = snap.val(); if (v !== null){ lastTemp = parseFloat(v); handleReading(); } }, showOffline);
-db.ref(HUM_PATH).on('value', snap => { const v = snap.val(); if (v !== null){ lastHum = parseFloat(v); handleReading(); } }, showOffline);
+db.collection(READINGS_COLLECTION).orderBy('timestamp', 'desc').limit(MAX_POINTS).onSnapshot(snapshot => { if (snapshot.empty) return; const latest = snapshot.docs[0].data(); const temperature = Number(latest.temperatura); const humidity = Number(latest.umidade); if (!Number.isFinite(temperature) || !Number.isFinite(humidity)) return; lastTemp = temperature; lastHum = humidity; updateHistory(snapshot); handleReading(); }, showOffline);
