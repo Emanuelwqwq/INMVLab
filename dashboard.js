@@ -15,6 +15,19 @@ let lastTemp = null, lastHum = null;
 let history = { labels: [], temp: [], hum: [] };
 const MAX_POINTS = 20;
 const ctx = document.getElementById('historyChart').getContext('2d');
+const navLinks = document.querySelectorAll('nav a[href^="#"]');
+
+navLinks.forEach(link => {
+  link.addEventListener('click', event => {
+    event.preventDefault();
+    const target = document.querySelector(link.getAttribute('href'));
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    navLinks.forEach(item => item.classList.remove('active'));
+    link.classList.add('active');
+  });
+});
+
 const chart = new Chart(ctx, { type: 'line', data: { labels: history.labels, datasets: [
   { label: 'Temperatura °C', data: history.temp, borderColor: '#9b82ff', backgroundColor: 'rgba(155,130,255,.15)', tension: .35, pointRadius: 3, yAxisID: 'y' },
   { label: 'Umidade %', data: history.hum, borderColor: '#4fa3ff', backgroundColor: 'rgba(79,163,255,.15)', tension: .35, pointRadius: 3, yAxisID: 'y1' }
