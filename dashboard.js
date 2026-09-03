@@ -1,3 +1,4 @@
+const messaging = firebase.messaging();
 const firebaseConfig = { apiKey: "AIzaSyBWDcTMNN4aUYywXhgUw_gJzlkB45F1foM", authDomain: "climat-7c7f7.firebaseapp.com", projectId: "climat-7c7f7", storageBucket: "climat-7c7f7.firebasestorage.app", messagingSenderId: "267164246485", appId: "1:267164246485:web:a72b776b880ba5b8b71d5c" };
 const MAX_POINTS = 20;
 const SENSOR_TIMEOUT_MS = 120000;
@@ -29,7 +30,37 @@ function updateStats(){ const temps = readings.map(item => item.temp); const hum
 function updateTable(){ const query = ($('#searchInput')?.value || '').toLowerCase(); const filtered = readings.filter(item => formatDate(item.date).toLowerCase().includes(query)); $('#tableSummary').textContent = `${filtered.length} leitura${filtered.length === 1 ? '' : 's'} disponível${filtered.length === 1 ? '' : 'eis'}`; $('#dataTable').innerHTML = filtered.map(item => { const comfort = comfortScore(item.temp, item.hum); const risk = fireRisk(item.temp, item.hum); return `<tr><td>${formatDate(item.date)}</td><td><strong>${item.temp.toFixed(1)}°C</strong></td><td>${Math.round(item.hum)}%</td><td>${comfort}/100</td><td><span class="table-risk ${risk.className}">${risk.label}</span></td></tr>`; }).join('') || '<tr><td colspan="5" class="empty-state">Nenhuma leitura encontrada.</td></tr>'; }
 function exportCsv(){ const rows = [['data_hora','temperatura_c','umidade_percentual','conforto','risco']]; readings.forEach(item => rows.push([formatDate(item.date), item.temp.toFixed(1), item.hum.toFixed(1), comfortScore(item.temp,item.hum), fireRisk(item.temp,item.hum).label])); const blob = new Blob([rows.map(row => row.join(';')).join('\n')], { type: 'text/csv;charset=utf-8' }); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'leituras-canto-do-buriti.csv'; link.click(); URL.revokeObjectURL(link.href); }
 function navigate(){ const view = (location.hash || '#dashboard').slice(1); const valid = ['dashboard','dados','alertas','analises','sobre']; const active = valid.includes(view) ? view : 'dashboard'; $$('.page').forEach(page => page.classList.toggle('hidden', page.dataset.view !== active)); $$('nav a[data-page]').forEach(link => link.classList.toggle('active', link.dataset.page === active)); $('.sidebar').classList.remove('mobile-open'); $('#mobileMenu').setAttribute('aria-expanded', 'false'); window.scrollTo({ top: 0, behavior: 'smooth' }); }
-function enableNotifications(){ if (!('Notification' in window)) return; Notification.requestPermission().then(permission => { $('#notifyButton').textContent = permission === 'granted' ? '◉ Notificações ativas' : '◉ Notificações bloqueadas'; }); }
+ async function enableNotifications() {
+  if (!('Notification' in window)) return;
+
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission === 'granted') {
+      $('#notifyButton').textContent = '◉ Notificações ativas';
+
+      // Registra o Service Worker
+      const registration = await navigator.serviceWorker.register('firebase-messaging-sw.js');
+
+      // Substitua a string abaixo pela chave que você gerou no Passo 1
+      const currentToken = await messaging.getToken({
+        serviceWorkerRegistration: registration,
+        vapidKey: 'BNEXQLVGXD7XSZ3dsOln7xqJkgqxDpb5OxwLv54CrQnYjEjvwq4zEUhFly4V2rh7i2MQYFDYU19GDyRPZgojIas' 
+      });
+
+      if (currentToken) {
+        // Salva o token no Firestore para a Cloud Function ler
+        await db.collection('fcm_tokens').doc(currentToken).set({
+          token: currentToken,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+      }
+    } else {
+      $('#notifyButton').textContent = '◉ Notificações bloqueadas';
+    }
+  } catch (err) {
+    console.error('Erro ao ativar notificações:', err);
+  }
+}
 function showOffline(){ $('#statusText').textContent = 'Estação offline'; $('#connPill').innerHTML = '<i></i> sem conexão'; $('#statusDot').style.background = 'var(--coral)'; $('#stationState').textContent = 'OFFLINE'; $('#stationState').style.color = 'var(--coral)'; $('#alertHeadline').textContent = 'Estação sem conexão'; $('#alertBadge').textContent = '1'; $('#alertCount').textContent = '1'; $('#alertList').innerHTML = '<div class="alert-item"><span class="alert-symbol">!</span><div><strong>Estação offline</strong><small>Não foi possível receber dados do Firestore.</small></div><span class="alert-time">agora</span></div>'; if (!offlineNotified && 'Notification' in window && Notification.permission === 'granted') new Notification('IMNVLab · estação offline', { body: 'A estação de Canto do Buriti não está enviando dados.' }); offlineNotified = true; }
 function showConnecting(){ $('#statusText').textContent = 'Reconectando...'; $('#connPill').innerHTML = '<i></i> reconectando'; $('#statusDot').style.background = 'var(--yellow)'; }
 function start(){ setupCharts(); setupRegionalMap(); setupThresholds(); setInterval(() => { if (latest) updateSensorStatus(); }, 15000); window.addEventListener('hashchange', navigate); window.addEventListener('offline', showOffline); window.addEventListener('online', showConnecting); navigate(); startLocationTracking(); $('#locationButton').addEventListener('click', startLocationTracking); $('#locationButtonTop').addEventListener('click', startLocationTracking); $('#mobileMenu').addEventListener('click', () => { const open = $('.sidebar').classList.toggle('mobile-open'); $('#mobileMenu').setAttribute('aria-expanded', String(open)); }); $('#exportButton').addEventListener('click', exportCsv); $('#searchInput').addEventListener('input', updateTable); $('#runAnalysisButton').addEventListener('click', updateStats); $('#notifyButton').addEventListener('click', enableNotifications); db.collection('leituras').orderBy('timestamp', 'desc').limit(100).onSnapshot(snapshot => { offlineNotified = false; readings = snapshot.docs.map(doc => { const data = doc.data(); return { temp: Number(data.temperatura), hum: Number(data.umidade), date: readingDate(data.timestamp) }; }).filter(item => Number.isFinite(item.temp) && Number.isFinite(item.hum)); latest = readings[0]; lastReadingAt = latest?.date || null; if (latest) { updateCharts(); updateCurrent(); } }, showOffline); }
