@@ -6,8 +6,8 @@
 
 // =====
 // PREENCHA COM OS DADOS DO SEU PROJETO
-#define WIFI_SSID "VIESIL"
-#define WIFI_PASSWORD "08131930"
+#define WIFI_SSID "ESCOLA-PROFESSORES"
+#define WIFI_PASSWORD "!Mestres@Piaui#"
 #define API_KEY "AIzaSyBWDcTMNN4aUYywXhgUw_gJzlkB45F1foM"
 #define FIREBASE_PROJECT_ID "climat-7c7f7"
 #define USER_EMAIL "weberemanuel111@gmail.com"
