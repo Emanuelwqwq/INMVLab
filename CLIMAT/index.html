@@ -1,73 +1,168 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="theme-color" content="#050b1c">
-<meta name="description" content="Monitoramento ambiental em tempo real de Canto do Buriti.">
-<link rel="manifest" href="manifest.json">
-<title>IMNVLab | Canto do Buriti</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<title>IMNVLab — Monitoramento Ambiental</title>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <link rel="stylesheet" href="styles.css">
-<link rel="stylesheet" href="theme.css">
-<style>.location-button{background:transparent;border:1px solid #52616a;color:#dce0dc;cursor:pointer;font-size:10px;margin-top:9px;padding:7px;text-align:left}.location-button:hover{border-color:var(--coral);color:#fff}.map-placeholder{height:210px}.leaflet-container{font-family:"DM Sans",sans-serif}.threshold-settings{border-top:1px solid var(--line);display:flex;flex-direction:column;gap:9px;margin-top:20px;padding-top:18px}.threshold-settings label{align-items:center;color:var(--muted);display:flex;font-size:11px;gap:6px;justify-content:space-between}.threshold-settings input{border:1px solid var(--line);padding:7px;width:70px}.night-mode .sun-orbit{background:radial-gradient(circle,#dce8f5 0 17%,transparent 18% 37%,rgba(171,195,220,.3) 38% 39%,transparent 40% 60%,rgba(171,195,220,.18) 61% 62%,transparent 63%)}.night-mode .sun-orbit span{color:#dce8f5}@media(max-width:700px){.sidebar{display:flex;left:-285px;transition:left .25s ease;width:250px}.sidebar.mobile-open{left:0}.hero-grid,.hero-card,.regional-card,.content-grid{width:100%}.hero-card{min-height:300px}.hero-meta{flex-wrap:wrap}.chart-wrap{min-width:0;width:100%}}</style>
 </head>
 <body>
-<aside class="sidebar">
-  <a class="brand" href="#dashboard"><span class="brand-mark">🌤️</span><span><strong>IMNVLab</strong><small>Instituto Meteorológico Nonato Valente</small></span></a>
-  <div class="location"><span class="eyebrow">LOCALIZAÇÃO DO DISPOSITIVO</span><strong id="deviceLocation">Canto do Buriti</strong><span id="deviceCoordinates">PI · -8.11, -42.94</span><button class="location-button" id="locationButton">⌖ Usar localização atual</button></div>
-  <nav aria-label="Navegação principal">
-    <a href="#dashboard" data-page="dashboard" class="active"><span>⌂</span> Dashboard</a>
-    <a href="#dados" data-page="dados"><span>▤</span> Dados</a>
-    <a href="#alertas" data-page="alertas"><span>◉</span> Alertas <b class="badge" id="alertCount">0</b></a>
-    <a href="#analises" data-page="analises"><span>⌁</span> Análises</a>
-    <a href="#sobre" data-page="sobre"><span>⊙</span> Sobre a estação</a>
-  </nav>
-  <div class="sidebar-status"><span class="status-dot" id="statusDot"></span><span id="statusText">Conectando...</span><small id="lastUpdate">--:--:--</small></div>
-</aside>
-<main>
-  <header class="mobile-header"><a class="brand" href="#dashboard"><span class="brand-mark">🌤️</span><strong>IMNVLab</strong></a><button class="icon-button" id="mobileMenu" aria-label="Abrir menu" aria-expanded="false">☰</button></header>
-  <section class="page" data-view="dashboard">
-    <header class="page-header"><div><span class="eyebrow">MONITORAMENTO AMBIENTAL</span><span id="currentDateLabel" class="date-label">--</span><h1>Olá! <span class="greeting-sun">☀️</span></h1><p>Veja as condições do ambiente em tempo real.</p></div><div class="header-actions"><button class="outline-button" id="notifyButton">◉ Ativar notificações</button><button class="outline-button" id="locationButtonTop">⌖ Localização</button><span class="connection" id="connPill"><i></i> conectando</span></div></header>
-    <div class="section-heading"><div><span class="eyebrow">SINAL AO VIVO</span><h2>Condições do ambiente</h2></div><span class="updated" id="updatedLabel">sem dados</span></div>
-    <div class="kpi-grid"><article class="metric-card"><span class="metric-icon warm">°</span><span class="eyebrow">TEMPERATURA</span><strong><span id="tempValue">--</span><small>°C</small></strong><em id="tempDelta">aguardando</em></article><article class="metric-card"><span class="metric-icon wet">◌</span><span class="eyebrow">UMIDADE RELATIVA</span><strong><span id="humValue">--</span><small>%</small></strong><em id="humDelta">aguardando</em></article><article class="metric-card"><span class="metric-icon fresh">✧</span><span class="eyebrow">CONFORTO AMBIENTAL</span><strong><span id="comfortValue">--</span><small>/100</small></strong><em id="comfortTag">aguardando</em></article><article class="metric-card"><span class="metric-icon signal">⌁</span><span class="eyebrow">ESTAÇÃO</span><strong class="station-value" id="stationState">OFFLINE</strong><em id="sensorStatus">DHT11 · ESP32 · Firebase</em></article></div>
-    <div class="content-grid"><article class="panel chart-panel"><div class="card-title"><div><span class="eyebrow">ÚLTIMAS 20 LEITURAS</span><h3>Temperatura e umidade</h3></div><a class="text-link" href="#dados">ver todos →</a></div><div class="chart-wrap"><canvas id="historyChart"></canvas></div></article><article class="panel insight-panel"><span class="eyebrow">LEITURA DO MOMENTO</span><h3 id="analysisTitle">Aguardando dados</h3><p id="analysisText">Assim que a estação enviar uma medição, o diagnóstico aparece aqui.</p><a class="dark-button" href="#analises">Abrir análise <span>↗</span></a></article></div>
 
-    <div class="summary-grid"><article class="panel recommendation-card"><span class="eyebrow">RECOMENDAÇÃO</span><div class="recommendation-body"><span class="bulb">💡</span><div><h3 id="overviewRecommendationTitle">Aguardando a estação</h3><p id="overviewRecommendation">As recomendações aparecerão com a próxima leitura.</p></div></div></article><article class="panel compact-alerts"><div class="card-title"><span class="eyebrow">CENTRAL DE ALERTAS</span><a class="text-link" href="#alertas">Ver alertas →</a></div><div id="overviewAlerts" aria-live="polite">Aguardando dados do sensor.</div></article></div>
-    <div class="technology"><div><span class="eyebrow">TECNOLOGIA</span><p>Como a estação<br>funciona</p></div><div><span class="tech-icon">♨</span><strong>DHT11</strong><small>Coleta os dados</small></div><b>→</b><div><span class="tech-icon">▣</span><strong>ESP32</strong><small>Processa os dados</small></div><b>→</b><div><span class="tech-icon blue">◉</span><strong>Wi-Fi</strong><small>Envia os dados</small></div><b>→</b><div><span class="tech-icon">🔥</span><strong>Firebase</strong><small>Armazena os dados</small></div><b>→</b><div><span class="tech-icon blue">▱</span><strong>IMNVLab</strong><small>Exibe as informações</small></div></div>
-    <div class="section-heading regional-heading"><div><span class="eyebrow">CANTO DO BURITI · PI</span><h2>Panorama regional</h2></div></div>
-    <div class="hero-grid"><article class="hero-card"><div><span class="eyebrow">AGORA · ESTAÇÃO CB-01</span><h2 id="heroTemp">--<sup>°C</sup></h2><p id="heroCondition">Aguardando leitura do sensor</p></div><div class="sun-orbit" id="weatherOrb"><span id="weatherIcon">☼</span></div><div class="hero-meta"><span>Umidade <b id="heroHum">--%</b></span><span>Conforto <b id="heroComfort">--/100</b></span><span>Risco de incêndio <b id="heroFire">--</b></span></div></article><article class="regional-card"><div class="card-title"><div><span class="eyebrow">PAINEL REGIONAL</span><h3>Mapa de risco</h3></div><span class="region-pill">● semiárido</span></div><div class="map-placeholder"><div class="map-grid"></div><span class="map-pin">✦</span><span class="map-label" id="mapLocationLabel">Canto do Buriti<br><small>-8.11, -42.94</small></span><div class="map-ring ring-one"></div><div class="map-ring ring-two"></div></div><div class="risk-line"><span>Risco estimado hoje</span><strong id="fireRiskLabel">calculando...</strong></div></article></div>
+<aside class="sidebar">
+  <div class="brand">
+    <span class="icon">🌤️</span>
+    <div class="brand-text">
+      <div class="name">IMNVLab</div>
+      <div class="sub">Instituto Meteorológico Nonato Valente</div>
+    </div>
+  </div>
+  <nav>
+    <a href="#dashboard" class="active"><span class="left">📊 Dashboard</span></a>
+    <a href="#dados"><span class="left">📁 Dados</span></a>
+    <a href="#alertas"><span class="left">🔔 Alertas</span><span class="badge" id="alertCount">0</span></a>
+    <a href="#analises"><span class="left">🔍 Análises</span></a>
+    <a href="#sobre"><span class="left">ℹ️ Sobre</span></a>
+  </nav>
+  <div class="station-box">
+    <div class="status"><span class="dot" id="statusDot"></span><span id="statusText">Estação online</span></div>
+    <div class="muted">Última atualização</div>
+    <div class="time" id="lastUpdate">--:--:--</div>
+  </div>
+</aside>
+
+<main>
+  <header class="top" id="dashboard">
+    <div>
+      <div class="eyebrow">MONITORAMENTO AMBIENTAL</div>
+      <h1>Olá! 👋</h1>
+      <p>Veja as condições do ambiente em tempo real.</p>
+    </div>
+    <div class="top-right">
+      <div class="pill" id="connPill"><span class="dot"></span> Sistema conectado</div>
+      <div class="bell">🔔</div>
+    </div>
+  </header>
+
+  <section class="kpi-grid">
+    <div class="card">
+      <div class="kpi-top">
+        <div class="kpi-label">Temperatura</div>
+        <div class="kpi-icon temp">🌡️</div>
+      </div>
+      <div class="kpi-value"><span id="tempValue">--</span><span class="unit"> °C</span></div>
+      <div class="kpi-delta up" id="tempDelta">—</div>
+      <div class="kpi-foot">Temperatura atual</div>
+    </div>
+
+    <div class="card">
+      <div class="kpi-top">
+        <div class="kpi-label">Umidade</div>
+        <div class="kpi-icon hum">💧</div>
+      </div>
+      <div class="kpi-value"><span id="humValue">--</span><span class="unit"> %</span></div>
+      <div class="kpi-delta down" id="humDelta">—</div>
+      <div class="kpi-foot">Umidade relativa do ar</div>
+    </div>
+
+    <div class="card">
+      <div class="kpi-top">
+        <div class="kpi-label">Conforto ambiental</div>
+        <div class="kpi-icon comfort">🙂</div>
+      </div>
+      <div class="kpi-value"><span id="comfortValue">--</span><span class="unit"> /100</span></div>
+      <div class="comfort-tag" id="comfortTag">—</div>
+      <div class="comfort-bar-track"><div class="comfort-bar-fill" id="comfortBar" style="width:0%"></div></div>
+    </div>
+
+    <div class="card">
+      <div class="kpi-top">
+        <div class="kpi-label">Estação</div>
+        <div class="kpi-icon station">🖧</div>
+      </div>
+      <div class="kpi-value" style="font-size:16px;color:var(--green)" id="stationState">ONLINE</div>
+      <div class="station-lines">
+        DHT11 <span class="ok">✓</span><br>
+        ESP32 <span class="ok">✓</span><br>
+        Firebase <span class="ok" id="fbCheck">✓</span>
+      </div>
+    </div>
   </section>
-  <section class="page hidden" data-view="dados"><header class="page-header"><div><span class="eyebrow">ARQUIVO DE MEDIÇÕES</span><h1>Dados da estação.</h1><p>Consulte, filtre e exporte as leituras coletadas.</p></div><button class="dark-button" id="exportButton">↓ Exportar CSV</button></header><article class="panel table-panel"><div class="toolbar"><div><span class="eyebrow">HISTÓRICO</span><h3 id="tableSummary">0 leituras disponíveis</h3></div><label class="search-field">⌕ <input id="searchInput" type="search" placeholder="Buscar por horário..."></label></div><div class="table-scroll"><table><thead><tr><th>Data e hora</th><th>Temperatura</th><th>Umidade</th><th>Conforto</th><th>Risco</th></tr></thead><tbody id="dataTable"><tr><td colspan="5" class="empty-state">Aguardando dados do Firestore...</td></tr></tbody></table></div></article></section>
-  <section class="page hidden" data-view="alertas"><header class="page-header"><div><span class="eyebrow">MONITORAMENTO DE LIMITES</span><h1>Central de alertas.</h1><p>Notificações geradas a partir das condições observadas.</p></div><span class="connection">● monitorando</span></header><div class="alert-layout"><article class="panel"><div class="card-title"><div><span class="eyebrow">STATUS ATUAL</span><h3 id="alertHeadline">Tudo sob controle</h3></div><span class="badge large" id="alertBadge">0</span></div><div id="alertList" class="alert-list"><div class="empty-state">Nenhum alerta no momento.</div></div></article><article class="panel threshold-panel"><span class="eyebrow">LIMITES DE REFERÊNCIA</span><h3>Quando alertamos</h3><div class="threshold"><span class="threshold-symbol hot">°</span><div><strong>Calor intenso</strong><small>temperatura acima de 30°C</small></div></div><div class="threshold"><span class="threshold-symbol dry">◌</span><div><strong>Umidade crítica</strong><small>abaixo de 30% ou acima de 70%</small></div></div><div class="threshold"><span class="threshold-symbol cold">✦</span><div><strong>Frio intenso</strong><small>temperatura abaixo de 18°C</small></div></div></article></div>
-<article class="panel whatsapp-panel"><div class="card-title"><div><span class="eyebrow">ALERTAS E NOTIFICAÇÕES AUTOMÁTICAS</span><h3><span class="whatsapp-icon">◉</span> Seu ambiente, no WhatsApp.</h3><p>Receba avisos de calor, frio, umidade e recuperação do ambiente.</p></div><span class="connection" id="waStatus">Verificando integração…</span></div>
-<div class="whatsapp-grid"><div><p class="wa-help">Os alertas automáticos funcionam mesmo com o painel fechado. A administração da estação define o destinatário e os limites.</p><button type="button" class="outline-button" id="waLogin">Entrar como administrador</button><button type="button" class="outline-button hidden" id="waLogout">Sair da administração</button><p id="waFeedback" role="status" aria-live="polite"></p>
-<form id="waForm" class="hidden"><label class="check-label"><input type="checkbox" id="waEnabled"> Ativar alertas automáticos</label><label>WhatsApp do destinatário<input type="tel" id="waPhone" placeholder="+55 89 99999-9999" required autocomplete="tel"></label><div class="wa-fields"><label>Calor acima de (°C)<input id="waMaxTemp" type="number" value="30" min="-40" max="80" step="0.5" required></label><label>Frio abaixo de (°C)<input id="waMinTemp" type="number" value="18" min="-40" max="80" step="0.5" required></label><label>Umidade mínima (%)<input id="waMinHum" type="number" value="30" min="0" max="100" required></label><label>Umidade máxima (%)<input id="waMaxHum" type="number" value="70" min="0" max="100" required></label></div><label class="check-label"><input id="waRecovery" type="checkbox" checked> Avisar quando voltar à faixa configurada</label><label class="check-label"><input id="waConsent" type="checkbox" required> O destinatário autorizou o recebimento destes alertas.</label><button class="dark-button" type="submit" id="waSave">Salvar configuração do WhatsApp</button><p class="wa-help">Esses limites são usados pelo serviço de WhatsApp. Os limites do navegador continuam independentes.</p></form></div>
-<div class="message-preview"><div class="message-header"><span class="brand-mark">🌤️</span><div><strong>IMNVLab</strong><small>Prévia ilustrativa da mensagem</small></div></div><div class="message-bubble"><strong>🌡️ ALERTA AMBIENTAL</strong><p>Temperatura acima do limite</p><p>Temperatura: 33,2 °C<br>Umidade: 58%</p><p>Acompanhe as condições da estação pelo painel.</p><small>Exemplo · não enviado</small></div><p class="preview-caption">O envio utiliza um modelo aprovado no WhatsApp Business.</p></div></div></article>
-</section>
-  <section class="page hidden" data-view="analises"><header class="page-header"><div><span class="eyebrow">INTELIGÊNCIA AMBIENTAL</span><h1>O que os dados dizem.</h1><p>Resumo estatístico das leituras disponíveis para hoje.</p></div><button class="dark-button" id="runAnalysisButton">↻ Atualizar análise</button></header><div class="stats-grid"><article class="stat-card"><span class="eyebrow">MÉDIA TÉRMICA</span><strong id="avgTemp">--°C</strong><small>nas leituras de hoje</small></article><article class="stat-card"><span class="eyebrow">MÉDIA DE UMIDADE</span><strong id="avgHum">--%</strong><small>nas leituras de hoje</small></article><article class="stat-card"><span class="eyebrow">PICO DE TEMPERATURA</span><strong id="maxTemp">--°C</strong><small id="maxTempTime">horário não disponível</small></article><article class="stat-card"><span class="eyebrow">LEITURAS VÁLIDAS</span><strong id="validReadings">0</strong><small>registros analisados</small></article></div><div class="analysis-layout"><article class="panel narrative-panel"><span class="eyebrow">SÍNTESE AUTOMÁTICA</span><h3 id="dailyTitle">Análise pendente</h3><p id="dailyText">Ainda não há dados suficientes para calcular a tendência do dia.</p><div class="recommendation"><span>✧</span><div><strong>Recomendação</strong><p id="dailyRecommendation">Aguardando leituras.</p></div></div></article><article class="panel"><div class="card-title"><div><span class="eyebrow">TENDÊNCIA</span><h3>Variação térmica</h3></div></div><div class="chart-wrap small"><canvas id="analysisChart"></canvas></div></article></div></section>
-  <section class="page hidden" data-view="sobre"><header class="page-header"><div><span class="eyebrow">A ESTAÇÃO</span><h1>Um ponto de observação.</h1><p>Dados locais para decisões mais conscientes no semiárido piauiense.</p></div></header><div class="about-grid"><article class="about-feature"><span class="eyebrow">CB-01 · CANTO DO BURITI</span><strong>-8.11°<br><i>-42.94°</i></strong><p>Coordenadas da estação que acompanha o microclima local.</p></article><article class="panel about-panel"><span class="eyebrow">COMO FUNCIONA</span><h3>Do sensor ao insight</h3><div class="flow"><span>DHT11<small>mede</small></span><b>→</b><span>ESP32<small>processa</small></span><b>→</b><span>Firestore<small>armazena</small></span><b>→</b><span>IMNVLab<small>interpreta</small></span></div></article></div></section>
+
+  <section class="mid-grid">
+    <div class="card" id="dados">
+      <div class="card-head">
+        <div>
+          <div class="t">HISTÓRICO</div>
+          <div class="s">Monitoramento das últimas leituras</div>
+        </div>
+        <select class="range">
+          <option>Últimas leituras</option>
+        </select>
+      </div>
+      <canvas id="historyChart"></canvas>
+    </div>
+
+    <div class="card analysis-box" id="analises">
+      <div>
+        <div class="card-head" style="margin-bottom:10px;">
+          <div class="t">ANÁLISE</div>
+        </div>
+        <div class="s" style="margin-bottom:10px;">O que os dados dizem?</div>
+        <div class="analysis-verdict" id="analysisBox">
+          Aguardando dados do sensor…
+          <p id="analysisText">Assim que o ESP32 enviar a primeira leitura, a análise aparece aqui.</p>
+        </div>
+      </div>
+      <button class="analyze-btn" onclick="runAnalysis()">Analisar agora ✨</button>
+    </div>
+  </section>
+
+  <section class="bottom-grid">
+    <div class="card reco-box">
+      <div class="em">💡</div>
+      <div>
+        <div class="title" id="recoTitle">RECOMENDAÇÃO</div>
+        <p id="recoText">Aguardando dados para gerar uma recomendação.</p>
+      </div>
+    </div>
+
+    <div class="card" id="alertas">
+      <div class="card-head">
+        <div class="t">Central de alertas</div>
+        <span class="badge" id="alertBadge">0</span>
+      </div>
+      <div id="alertList">
+        <div class="alert-item">
+          <div class="left">
+            <span class="icon">✅</span>
+            <div>
+              <div class="a-title">Sistema funcionando</div>
+              <div class="a-sub">Aguardando conexão com o Firebase</div>
+            </div>
+          </div>
+          <div class="time">Agora</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="tech-strip" id="sobre">
+    <div class="label">TECNOLOGIA<br><span style="font-weight:400;color:var(--muted);">Como a estação funciona</span></div>
+    <div class="tech-node"><span class="ic">🌡️</span><span class="nm">DHT11</span>Coleta os dados</div>
+    <span class="arrow">→</span>
+    <div class="tech-node"><span class="ic">🧩</span><span class="nm">ESP32</span>Processa os dados</div>
+    <span class="arrow">→</span>
+    <div class="tech-node"><span class="ic">📶</span><span class="nm">Wi-Fi</span>Envia os dados</div>
+    <span class="arrow">→</span>
+    <div class="tech-node"><span class="ic">🔥</span><span class="nm">Firebase</span>Armazena os dados</div>
+    <span class="arrow">→</span>
+    <div class="tech-node"><span class="ic">💻</span><span class="nm">IMNVLab</span>Exibe as informações</div>
+  </section>
 </main>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-functions-compat.js"></script>
+
 <script src="dashboard.js"></script>
-<script src="whatsapp.js"></script>
-<script>
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./service-worker.js')
-      .then(reg => console.log('Service Worker registrado:', reg.scope))
-      .catch(err => console.error('Falha ao registrar Service Worker:', err));
-  });
-}
-</script>
 </body>
 </html>

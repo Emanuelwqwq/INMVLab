@@ -1,464 +1,50 @@
-const firebaseConfig = { apiKey: "AIzaSyBWDcTMNN4aUYywXhgUw_gJzlkB45F1foM", authDomain: "climat-7c7f7.firebaseapp.com", projectId: "climat-7c7f7", storageBucket: "climat-7c7f7.firebasestorage.app", messagingSenderId: "267164246485", appId: "1:267164246485:web:a72b776b880ba5b8b71d5c" };
-
-/* ⚠️ SUBSTITUA pela sua chave VAPID (Firebase Console → Project settings → Cloud Messaging → Web Push certificates) */
-const VAPID_KEY = 'BNEXQLVGXD7XSZ3dsOln7xqJkgqxDpb5OxwLv54CrQnYjEjvwq4zEUhFly4V2rh7i2MQYFDYU19GDyRPZgojIas';
-
-const MAX_POINTS = 20;
-const SENSOR_TIMEOUT_MS = 120000;
-let readings = [], latest = null, historyChart, analysisChart, regionalMap, locationMarker, lastAlertSignature = '', offlineNotified = false, locationWatchId = null, lastReadingAt = null, sensorOfflineNotified = false;
-let thresholds = JSON.parse(localStorage.getItem('imnvlab-thresholds') || '{"maxTemp":30,"minHum":30,"maxHum":70}');
-let messaging = null;
+const firebaseConfig = {
+  apiKey: "AIzaSyBWDcTMNN4aUYywXhgUw_gJzlkB45F1foM",
+  authDomain: "climat-7c7f7.firebaseapp.com",
+  databaseURL: "https://climat-7c7f7-default-rtdb.firebaseio.com",
+  projectId: "climat-7c7f7",
+  storageBucket: "climat-7c7f7.firebasestorage.app",
+  messagingSenderId: "267164246485",
+  appId: "1:267164246485:web:a72b776b880ba5b8b71d5c"
+};
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
-try {
-  messaging = firebase.messaging();
-} catch (e) {
-  console.warn('Firebase Messaging não disponível neste navegador:', e);
-}
+const READINGS_COLLECTION = "leituras";
+let lastTemp = null, lastHum = null;
+let history = { labels: [], temp: [], hum: [] };
+const MAX_POINTS = 20;
+const ctx = document.getElementById('historyChart').getContext('2d');
+const navLinks = document.querySelectorAll('nav a[href^="#"]');
 
-const $ = selector => document.querySelector(selector);
-const $$ = selector => [...document.querySelectorAll(selector)];
-const formatTime = date => date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-const formatDate = date => date.toLocaleString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-
-function updateDayNight(){
-  const now = new Date();
-  const hour = now.getHours() + now.getMinutes() / 60;
-  const night = hour < 6 || hour >= 18;
-  document.body.classList.toggle('night-mode', night);
-  $('#weatherIcon').textContent = night ? '☾' : '☼';
-  $('#currentDateLabel').textContent = now.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase();
-}
-
-function readingDate(value){
-  if (value && typeof value.toDate === 'function') return value.toDate();
-  if (typeof value === 'number') return new Date(value > 10000000000 ? value : value * 1000);
-  return value ? new Date(value) : new Date();
-}
-
-function isSensorOnline(){
-  return lastReadingAt instanceof Date && Date.now() - lastReadingAt.getTime() <= SENSOR_TIMEOUT_MS;
-}
-
-function updateSensorStatus(){
-  if (!latest || !isSensorOnline()) {
-    $('#statusText').textContent = 'Arduino offline';
-    $('#connPill').innerHTML = '<i></i> Arduino offline';
-    $('#statusDot').style.background = 'var(--coral)';
-    $('#stationState').textContent = 'OFFLINE';
-    $('#stationState').style.color = 'var(--coral)';
-    $('#alertHeadline').textContent = 'Arduino sem enviar dados';
-    $('#alertBadge').textContent = '1';
-    $('#alertCount').textContent = '1';
-    $('#alertList').innerHTML = '<div class="alert-item"><span class="alert-symbol">!</span><div><strong>Arduino offline</strong><small>Nenhuma leitura nova há mais de 2 minutos.</small></div><span class="alert-time">agora</span></div>';
-    if (!sensorOfflineNotified && 'Notification' in window && Notification.permission === 'granted') {
-      new Notification('IMNVLab · Arduino offline', { body: 'O Arduino de Canto do Buriti não envia uma leitura nova há mais de 2 minutos.' });
-    }
-    sensorOfflineNotified = true;
-    return false;
-  }
-  sensorOfflineNotified = false;
-  $('#statusText').textContent = 'Estação online';
-  $('#connPill').innerHTML = '<i></i> conectado';
-  $('#statusDot').style.background = 'var(--teal)';
-  $('#stationState').textContent = 'ONLINE';
-  $('#stationState').style.color = 'var(--teal)';
-  updateAlerts();
-  return true;
-}
-
-function setupRegionalMap(){
-  const mapElement = $('.map-placeholder');
-  if (!window.L || !mapElement) return;
-  mapElement.innerHTML = '';
-  regionalMap = L.map(mapElement).setView([-8.11, -42.94], 10);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors', maxZoom: 19 }).addTo(regionalMap);
-  locationMarker = L.circleMarker([-8.11, -42.94], { radius: 8, color: '#995bff', fillColor: '#995bff', fillOpacity: .9 }).addTo(regionalMap);
-  locationMarker.bindPopup('<strong>Canto do Buriti</strong><br>-8.11, -42.94');
-}
-
-function updateDeviceLocation(position){
-  const latitude = position.coords.latitude;
-  const longitude = position.coords.longitude;
-  const coordinates = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
-  $('#deviceCoordinates').textContent = `GPS · ${coordinates}`;
-  $('#locationButton').textContent = '⌖ GPS atualizado';
-  $('#locationButtonTop').textContent = '⌖ GPS atualizado';
-  if (regionalMap) {
-    regionalMap.setView([latitude, longitude], 12);
-    if (locationMarker) locationMarker.setLatLng([latitude, longitude]);
-    else locationMarker = L.circleMarker([latitude, longitude], { radius: 8, color: '#995bff', fillColor: '#995bff', fillOpacity: .9 }).addTo(regionalMap);
-    locationMarker.bindPopup('Sua localização atual');
-  }
-  fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}&zoom=10&addressdetails=1`)
-    .then(response => response.json())
-    .then(data => {
-      const address = data.address || {};
-      const city = address.city || address.town || address.village || address.municipality || 'Localização atual';
-      const state = address.state_code || address.state || '';
-      $('#deviceLocation').textContent = city;
-      $('#deviceCoordinates').textContent = `${state ? `${state} · ` : ''}${coordinates}`;
-      if (locationMarker) locationMarker.bindPopup(`<strong>${city}</strong><br>${coordinates}`);
-    })
-    .catch(() => { $('#deviceLocation').textContent = 'Localização atual'; });
-}
-
-function handleLocationError(error){
-  const messages = { 1: 'Permissão de localização negada', 2: 'Localização indisponível', 3: 'Tempo esgotado ao localizar' };
-  if (error.code === 1) locationWatchId = null;
-  $('#deviceLocation').textContent = 'Canto do Buriti';
-  $('#deviceCoordinates').textContent = `GPS · ${messages[error.code] || 'indisponível'}`;
-  $('#locationButton').textContent = '⌖ Tentar localização';
-  $('#locationButtonTop').textContent = '⌖ Tentar localização';
-}
-
-function startLocationTracking(){
-  if (!('geolocation' in navigator)) return handleLocationError({ code: 2 });
-  if (locationWatchId !== null) return;
-  const options = { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 };
-  locationWatchId = navigator.geolocation.watchPosition(updateDeviceLocation, handleLocationError, options);
-}
-
-function comfortScore(temp, hum){
-  let score = 100;
-  if (temp < 18 || temp > 30) score -= 35;
-  else if (temp < 20 || temp > 26) score -= 15;
-  if (hum < 30 || hum > 70) score -= 35;
-  else if (hum < 40 || hum > 60) score -= 15;
-  return Math.max(0, Math.min(100, score));
-}
-
-function fireRisk(temp, hum){
-  if (temp > 32 && hum < 30) return { label: 'alto', className: 'high' };
-  if (temp > 29 || hum < 40) return { label: 'moderado', className: 'medium' };
-  return { label: 'baixo', className: 'low' };
-}
-
-function setupThresholds(){
-  const panel = $('.threshold-panel');
-  const box = document.createElement('div');
-  box.className = 'threshold-settings';
-  box.innerHTML = `<span class="eyebrow">SEUS LIMITES</span><label>Temperatura máxima <input id="maxTempInput" type="number" step="0.5" value="${thresholds.maxTemp}"> °C</label><label>Umidade mínima <input id="minHumInput" type="number" step="1" value="${thresholds.minHum}"> %</label><label>Umidade máxima <input id="maxHumInput" type="number" step="1" value="${thresholds.maxHum}"> %</label><button class="dark-button" id="saveThresholds">Salvar limites</button>`;
-  panel.append(box);
-  $('#saveThresholds').addEventListener('click', () => {
-    thresholds = {
-      maxTemp: Number($('#maxTempInput').value),
-      minHum: Number($('#minHumInput').value),
-      maxHum: Number($('#maxHumInput').value)
-    };
-    localStorage.setItem('imnvlab-thresholds', JSON.stringify(thresholds));
-    if (latest) updateCurrent();
-    $('#saveThresholds').textContent = 'Limites salvos';
+navLinks.forEach(link => {
+  link.addEventListener('click', event => {
+    event.preventDefault();
+    const target = document.querySelector(link.getAttribute('href'));
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    navLinks.forEach(item => item.classList.remove('active'));
+    link.classList.add('active');
   });
-}
+});
 
-function setupCharts(){
-  const config = {
-    type: 'line',
-    data: {
-      labels: [],
-      datasets: [
-        { label: 'Temperatura °C', data: [], borderColor: '#995bff', backgroundColor: 'rgba(153,91,255,.1)', tension: .35, pointRadius: 2, yAxisID: 'temp' },
-        { label: 'Umidade %', data: [], borderColor: '#339bef', backgroundColor: 'rgba(76,154,145,.1)', tension: .35, pointRadius: 2, yAxisID: 'hum' }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: { legend: { labels: { color: '#9ba8c3', boxWidth: 10, font: { family: 'DM Sans', size: 10 } } } },
-      scales: {
-        x: { ticks: { color: '#9ba8c3' }, grid: { color: '#1a2540' } },
-        temp: { position: 'left', ticks: { color: '#995bff' }, grid: { color: '#1a2540' } },
-        hum: { position: 'right', ticks: { color: '#339bef' }, grid: { display: false } }
-      }
-    }
-  };
-  historyChart = new Chart($('#historyChart'), config);
-  analysisChart = new Chart($('#analysisChart'), { ...config, data: { labels: [], datasets: [config.data.datasets[0]] } });
-}
+const chart = new Chart(ctx, { type: 'line', data: { labels: history.labels, datasets: [
+  { label: 'Temperatura °C', data: history.temp, borderColor: '#9b82ff', backgroundColor: 'rgba(155,130,255,.15)', tension: .35, pointRadius: 3, yAxisID: 'y' },
+  { label: 'Umidade %', data: history.hum, borderColor: '#4fa3ff', backgroundColor: 'rgba(79,163,255,.15)', tension: .35, pointRadius: 3, yAxisID: 'y1' }
+] }, options: { responsive: true, interaction: { mode: 'index', intersect: false }, plugins: { legend: { labels: { color: '#8791ac', boxWidth: 10, font: { size: 11 } } } }, scales: {
+  x: { ticks: { color: '#8791ac', font: { size: 10 } }, grid: { color: '#262e47' } },
+  y: { position: 'left', ticks: { color: '#8791ac', font: { size: 10 } }, grid: { color: '#262e47' } },
+  y1: { position: 'right', ticks: { color: '#8791ac', font: { size: 10 } }, grid: { display: false } }
+} } });
 
-function updateCharts(){
-  const ordered = readings.slice(0, MAX_POINTS).reverse();
-  const labels = ordered.map(item => formatTime(item.date));
-  const temps = ordered.map(item => item.temp);
-  const hums = ordered.map(item => item.hum);
-  historyChart.data.labels = labels;
-  historyChart.data.datasets[0].data = temps;
-  historyChart.data.datasets[1].data = hums;
-  historyChart.update();
-  analysisChart.data.labels = labels;
-  analysisChart.data.datasets[0].data = temps;
-  analysisChart.update();
-}
-
-function updateCurrent(){
-  if (!latest) return;
-  const { temp, hum, date } = latest;
-  const comfort = comfortScore(temp, hum);
-  const risk = fireRisk(temp, hum);
-  $('#heroTemp').innerHTML = `${temp.toFixed(1)}<sup>°C</sup>`;
-  $('#heroHum').textContent = `${Math.round(hum)}%`;
-  $('#heroComfort').textContent = `${comfort}/100`;
-  $('#heroFire').textContent = risk.label;
-  $('#tempValue').textContent = temp.toFixed(1);
-  $('#humValue').textContent = Math.round(hum);
-  $('#comfortValue').textContent = comfort;
-  $('#comfortTag').textContent = comfort >= 75 ? 'bom para permanecer' : comfort >= 50 ? 'moderado hoje' : 'fora da faixa ideal';
-  $('#stationState').textContent = 'ONLINE';
-  $('#heroCondition').textContent = comfort >= 75 ? 'Condições agradáveis no momento' : 'Condições pedem atenção';
-  $('#fireRiskLabel').textContent = risk.label;
-  $('#fireRiskLabel').className = risk.className;
-  $('#updatedLabel').textContent = `atualizado às ${formatTime(date)}`;
-  $('#lastUpdate').textContent = formatTime(date);
-  $('#statusText').textContent = 'Estação online';
-  $('#statusDot').style.background = 'var(--teal)';
-  $('#connPill').innerHTML = '<i></i> conectado';
-  $('#analysisTitle').textContent = comfort >= 75 ? 'Ambiente confortável' : comfort >= 50 ? 'Ambiente moderado' : 'Ambiente desconfortável';
-  $('#analysisText').textContent = `A temperatura está em ${temp.toFixed(1)}°C e a umidade em ${Math.round(hum)}%.`;
-  $('#tempDelta').textContent = temp > 30 ? 'acima do ideal' : 'faixa observada';
-  $('#humDelta').textContent = hum > 70 || hum < 30 ? 'fora do ideal' : 'faixa observada';
-  updateAlerts();
-  updateStats();
-  updateTable();
-  updateSensorStatus();
-  updateOverview();
-}
-
-function updateAlerts(){
-  const alerts = [];
-  if (latest.temp > thresholds.maxTemp) alerts.push(['🔥', 'Temperatura acima do limite', `Acima de ${thresholds.maxTemp}°C`]);
-  if (latest.hum > thresholds.maxHum) alerts.push(['◌', 'Umidade acima do limite', `Acima de ${thresholds.maxHum}%`]);
-  if (latest.hum < thresholds.minHum) alerts.push(['◌', 'Umidade abaixo do limite', `Abaixo de ${thresholds.minHum}%`]);
-  if (latest.temp < 18) alerts.push(['❄', 'Temperatura baixa', 'Ambiente abaixo de 18°C']);
-  const signature = alerts.map(alert => alert[1]).join('|');
-  if (signature && signature !== lastAlertSignature && 'Notification' in window && Notification.permission === 'granted') {
-    new Notification('Alerta climático · Canto do Buriti', { body: alerts.map(alert => alert[1]).join(' e ') });
-  }
-  lastAlertSignature = signature;
-  $('#alertCount').textContent = alerts.length;
-  $('#alertBadge').textContent = alerts.length;
-  $('#alertHeadline').textContent = alerts.length ? `${alerts.length} ponto${alerts.length > 1 ? 's' : ''} pede atenção` : 'Tudo sob controle';
-  $('#alertList').innerHTML = alerts.length
-    ? alerts.map(alert => `<div class="alert-item"><span class="alert-symbol">${alert[0]}</span><div><strong>${alert[1]}</strong><small>${alert[2]}</small></div><span class="alert-time">agora</span></div>`).join('')
-    : '<div class="empty-state">Nenhum alerta no momento.</div>';
-}
-
-function updateOverview(){
-  if (!latest) return;
-  const online = isSensorOnline();
-  const comfort = comfortScore(latest.temp, latest.hum);
-  document.querySelector('#overviewRecommendationTitle').textContent = online ? (comfort >= 75 ? 'Ambiente agradável' : 'Atenção às condições') : 'Estação sem leituras recentes';
-  document.querySelector('#overviewRecommendation').textContent = online ? (comfort >= 75 ? 'As condições atuais estão adequadas. Continue acompanhando as próximas medições.' : 'Confira a central de alertas e acompanhe as próximas medições.') : 'Verifique a alimentação e a conexão da estação.';
-  document.querySelector('#overviewAlerts').innerHTML = document.querySelector('#alertList').innerHTML;
-  document.querySelector('#connPill').classList.toggle('is-offline', !online);
-  document.querySelector('#comfortValue').closest('.metric-card').style.setProperty('--comfort', comfort + '%');
-}
-
-function updateStats(){
-  const temps = readings.map(item => item.temp);
-  const hums = readings.map(item => item.hum);
-  if (!temps.length) return;
-  const max = readings.reduce((a, b) => a.temp > b.temp ? a : b);
-  $('#avgTemp').textContent = `${(temps.reduce((a,b) => a+b, 0) / temps.length).toFixed(1)}°C`;
-  $('#avgHum').textContent = `${Math.round(hums.reduce((a,b) => a+b, 0) / hums.length)}%`;
-  $('#maxTemp').textContent = `${max.temp.toFixed(1)}°C`;
-  $('#maxTempTime').textContent = formatDate(max.date);
-  $('#validReadings').textContent = readings.length;
-  $('#dailyTitle').textContent = temps[temps.length - 1] > temps[0] ? 'O dia está aquecendo' : 'Temperatura estável';
-  $('#dailyText').textContent = `A média observada foi de ${(temps.reduce((a,b) => a+b, 0) / temps.length).toFixed(1)}°C, com umidade média de ${Math.round(hums.reduce((a,b) => a+b, 0) / hums.length)}%.`;
-  $('#dailyRecommendation').textContent = latest.hum < 40
-    ? 'Priorize ventilação e hidratação durante os períodos mais quentes.'
-    : 'As condições permitem seguir com as atividades habituais, mantendo o acompanhamento.';
-}
-
-function updateTable(){
-  const query = ($('#searchInput')?.value || '').toLowerCase();
-  const filtered = readings.filter(item => formatDate(item.date).toLowerCase().includes(query));
-  $('#tableSummary').textContent = `${filtered.length} ${filtered.length === 1 ? 'leitura disponível' : 'leituras disponíveis'}`;
-  $('#dataTable').innerHTML = filtered.map(item => {
-    const comfort = comfortScore(item.temp, item.hum);
-    const risk = fireRisk(item.temp, item.hum);
-    return `<tr><td>${formatDate(item.date)}</td><td><strong>${item.temp.toFixed(1)}°C</strong></td><td>${Math.round(item.hum)}%</td><td>${comfort}/100</td><td><span class="table-risk ${risk.className}">${risk.label}</span></td></tr>`;
-  }).join('') || '<tr><td colspan="5" class="empty-state">Nenhuma leitura encontrada.</td></tr>';
-}
-
-function exportCsv(){
-  const rows = [['data_hora','temperatura_c','umidade_percentual','conforto','risco']];
-  readings.forEach(item => rows.push([
-    formatDate(item.date),
-    item.temp.toFixed(1),
-    item.hum.toFixed(1),
-    comfortScore(item.temp, item.hum),
-    fireRisk(item.temp, item.hum).label
-  ]));
-  const blob = new Blob([rows.map(row => row.join(';')).join('\n')], { type: 'text/csv;charset=utf-8' });
-  const link = document.createElement('a');
-  link.href = URL.createObjectURL(blob);
-  link.download = 'leituras-canto-do-buriti.csv';
-  link.click();
-  URL.revokeObjectURL(link.href);
-}
-
-function navigate(){
-  const view = (location.hash || '#dashboard').slice(1);
-  const valid = ['dashboard','dados','alertas','analises','sobre'];
-  const active = valid.includes(view) ? view : 'dashboard';
-  $$('.page').forEach(page => page.classList.toggle('hidden', page.dataset.view !== active));
-  $$('nav a[data-page]').forEach(link => link.classList.toggle('active', link.dataset.page === active));
-  $('.sidebar').classList.remove('mobile-open');
-  $('#mobileMenu').setAttribute('aria-expanded', 'false');
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
-async function saveFcmToken(token) {
-  if (!token) return;
-  const deviceId = localStorage.getItem('imnvlab-device-id') || (() => {
-    const id = 'dev_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
-    localStorage.setItem('imnvlab-device-id', id);
-    return id;
-  })();
-  try {
-    await db.collection('fcmTokens').doc(deviceId).set({
-      token,
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      userAgent: navigator.userAgent,
-      platform: navigator.platform || 'unknown',
-      lang: navigator.language || 'pt-BR'
-    }, { merge: true });
-    localStorage.setItem('imnvlab-fcm-token', token);
-  } catch (err) {
-    console.error('Erro ao salvar token FCM:', err);
-  }
-}
-
-async function enableNotifications() {
-  if (!('Notification' in window)) {
-    alert('Este navegador não suporta notificações.');
-    return;
-  }
-  if (!messaging) {
-    alert('Firebase Messaging não está disponível neste navegador.');
-    return;
-  }
-  if (VAPID_KEY === 'SUBSTITUA_PELA_SUA_CHAVE_VAPID_AQUI') {
-    console.warn('Configure a VAPID_KEY em dashboard.js (Firebase Console → Cloud Messaging → Web Push certificates).');
-  }
-
-  try {
-    const permission = await Notification.requestPermission();
-    if (permission !== 'granted') {
-      $('#notifyButton').textContent = '◉ Notificações bloqueadas';
-      return;
-    }
-
-    const registration = await navigator.serviceWorker.ready;
-    const token = await messaging.getToken({
-      vapidKey: VAPID_KEY,
-      serviceWorkerRegistration: registration
-    });
-
-    if (token) {
-      await saveFcmToken(token);
-      $('#notifyButton').textContent = '◉ Notificações ativas';
-      console.log('FCM token registrado:', token.slice(0, 20) + '...');
-    } else {
-      $('#notifyButton').textContent = '◉ Token não gerado';
-    }
-
-    messaging.onMessage(payload => {
-      const title = payload.notification?.title || payload.data?.title || 'IMNVLab · Alerta';
-      const body = payload.notification?.body || payload.data?.body || 'Nova condição ambiental.';
-      if (Notification.permission === 'granted') {
-        new Notification(title, {
-          body,
-          icon: payload.notification?.icon || './icon-192.png',
-          tag: payload.data?.tag || 'imnvlab-fg'
-        });
-      }
-    });
-  } catch (err) {
-    console.error('Erro ao ativar notificações FCM:', err);
-    $('#notifyButton').textContent = '◉ Erro ao ativar';
-  }
-}
-
-async function tryRestoreFcmToken() {
-  if (!messaging || !('Notification' in window) || Notification.permission !== 'granted') return;
-  if (VAPID_KEY === 'SUBSTITUA_PELA_SUA_CHAVE_VAPID_AQUI') return;
-  try {
-    const registration = await navigator.serviceWorker.ready;
-    const token = await messaging.getToken({
-      vapidKey: VAPID_KEY,
-      serviceWorkerRegistration: registration
-    });
-    if (token) {
-      await saveFcmToken(token);
-      $('#notifyButton').textContent = '◉ Notificações ativas';
-    }
-  } catch (e) { /* silencioso */ }
-}
-
-function showOffline(){
-  $('#statusText').textContent = 'Estação offline';
-  $('#connPill').innerHTML = '<i></i> sem conexão';
-  $('#statusDot').style.background = 'var(--coral)';
-  $('#stationState').textContent = 'OFFLINE';
-  $('#stationState').style.color = 'var(--coral)';
-  $('#alertHeadline').textContent = 'Estação sem conexão';
-  $('#alertBadge').textContent = '1';
-  $('#alertCount').textContent = '1';
-  $('#alertList').innerHTML = '<div class="alert-item"><span class="alert-symbol">!</span><div><strong>Estação offline</strong><small>Não foi possível receber dados do Firestore.</small></div><span class="alert-time">agora</span></div>';
-  if (!offlineNotified && 'Notification' in window && Notification.permission === 'granted') {
-    new Notification('IMNVLab · estação offline', { body: 'A estação de Canto do Buriti não está enviando dados.' });
-  }
-  offlineNotified = true;
-}
-
-function showConnecting(){
-  $('#statusText').textContent = 'Reconectando...';
-  $('#connPill').innerHTML = '<i></i> reconectando';
-  $('#statusDot').style.background = 'var(--yellow)';
-}
-
-function start(){
-  setupCharts();
-  setupRegionalMap();
-  setupThresholds();
-  updateDayNight();
-  setInterval(() => { updateDayNight(); if (latest) { updateSensorStatus(); updateOverview(); } }, 15000);
-  window.addEventListener('hashchange', navigate);
-  window.addEventListener('offline', showOffline);
-  window.addEventListener('online', showConnecting);
-  navigate();
-  startLocationTracking();
-  $('#locationButton').addEventListener('click', startLocationTracking);
-  $('#locationButtonTop').addEventListener('click', startLocationTracking);
-  $('#mobileMenu').addEventListener('click', () => {
-    const open = $('.sidebar').classList.toggle('mobile-open');
-    $('#mobileMenu').setAttribute('aria-expanded', String(open));
-  });
-  $('#exportButton').addEventListener('click', exportCsv);
-  $('#searchInput').addEventListener('input', updateTable);
-  $('#runAnalysisButton').addEventListener('click', updateStats);
-  $('#notifyButton').addEventListener('click', enableNotifications);
-
-  tryRestoreFcmToken();
-
-  db.collection('leituras').orderBy('timestamp', 'desc').limit(100).onSnapshot(snapshot => {
-    offlineNotified = false;
-    readings = snapshot.docs.map(doc => {
-      const data = doc.data();
-      return { temp: Number(data.temperatura), hum: Number(data.umidade), date: readingDate(data.timestamp) };
-    }).filter(item => Number.isFinite(item.temp) && Number.isFinite(item.hum));
-    latest = readings[0];
-    lastReadingAt = latest?.date || null;
-    if (latest) {
-      updateCharts();
-      updateCurrent();
-    }
-  }, showOffline);
-}
-
-start();
+function fmtTime(){ return new Date().toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit',second:'2-digit'}); }
+function computeComfort(t, h){ let score = 100; if (t < 18 || t > 30) score -= 35; else if (t < 20 || t > 26) score -= 15; if (h < 30 || h > 70) score -= 35; else if (h < 40 || h > 60) score -= 15; return Math.max(0, Math.min(100, score)); }
+function updateComfortUI(score){ document.getElementById('comfortValue').textContent = score; document.getElementById('comfortBar').style.width = score + '%'; const tag = document.getElementById('comfortTag'); if (score >= 75){ tag.textContent = 'BOM'; tag.style.color = 'var(--green)'; } else if (score >= 50){ tag.textContent = 'MODERADO'; tag.style.color = 'var(--amber)'; } else { tag.textContent = 'RUIM'; tag.style.color = 'var(--red)'; } }
+function updateAlerts(t, h){ const list = document.getElementById('alertList'); const items = []; if (h > 70) items.push({icon:'⚠️', title:'Umidade elevada', sub:'Acima da faixa confortável'}); if (h < 30) items.push({icon:'⚠️', title:'Umidade baixa', sub:'Abaixo da faixa confortável'}); if (t > 30) items.push({icon:'🔥', title:'Temperatura alta', sub:'Ambiente pode estar quente'}); if (t < 18) items.push({icon:'❄️', title:'Temperatura baixa', sub:'Ambiente pode estar frio'}); items.push({icon:'✅', title:'Sistema funcionando', sub:'ESP32 conectado'}); list.innerHTML = items.map(i => `<div class="alert-item"><div class="left"><span class="icon">${i.icon}</span><div><div class="a-title">${i.title}</div><div class="a-sub">${i.sub}</div></div></div><div class="time">Agora</div></div>`).join(''); const count = items.length - 1; document.getElementById('alertBadge').textContent = count; document.getElementById('alertCount').textContent = count; }
+function updateRecommendation(t, h){ const title = document.getElementById('recoTitle'); const text = document.getElementById('recoText'); if (t >= 20 && t <= 26 && h >= 40 && h <= 60){ title.textContent = 'Ambiente agradável'; text.textContent = 'As condições atuais estão adequadas. Continue acompanhando as próximas medições.'; } else if (h > 70){ title.textContent = 'Umidade alta detectada'; text.textContent = 'Considere ventilar o ambiente ou usar um desumidificador.'; } else if (t > 30){ title.textContent = 'Temperatura elevada'; text.textContent = 'Considere ventilação ou climatização do ambiente.'; } else { title.textContent = 'Atenção às condições'; text.textContent = 'Os valores estão fora da faixa ideal de conforto.'; } }
+function runAnalysis(){ if (lastTemp === null || lastHum === null) return; const box = document.getElementById('analysisBox'); const txt = document.getElementById('analysisText'); const comfort = computeComfort(lastTemp, lastHum); if (comfort >= 75){ box.firstChild.textContent = 'Ambiente confortável'; txt.textContent = `A temperatura de ${lastTemp}°C e a umidade de ${lastHum}% estão dentro de uma faixa confortável.`; } else if (comfort >= 50){ box.firstChild.textContent = 'Ambiente moderado'; txt.textContent = `Temperatura de ${lastTemp}°C e umidade de ${lastHum}% estão levemente fora do ideal.`; } else { box.firstChild.textContent = 'Ambiente desconfortável'; txt.textContent = `Temperatura de ${lastTemp}°C e umidade de ${lastHum}% estão fora da faixa recomendada.`; } }
+function getReadingTime(timestamp){ if (timestamp && typeof timestamp.toDate === 'function') return timestamp.toDate(); if (timestamp instanceof Date) return timestamp; if (typeof timestamp === 'number') return new Date(timestamp > 10000000000 ? timestamp : timestamp * 1000); return new Date(); }
+function updateHistory(snapshot){ history.labels = []; history.temp = []; history.hum = []; snapshot.docs.slice().reverse().forEach(doc => { const data = doc.data(); history.labels.push(getReadingTime(data.timestamp).toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit',second:'2-digit'})); history.temp.push(Number(data.temperatura)); history.hum.push(Number(data.umidade)); }); chart.data.labels = history.labels; chart.data.datasets[0].data = history.temp; chart.data.datasets[1].data = history.hum; chart.update(); }
+function handleReading(){ if (lastTemp === null || lastHum === null) return; document.getElementById('tempValue').textContent = lastTemp.toFixed(1); document.getElementById('humValue').textContent = Math.round(lastHum); document.getElementById('lastUpdate').textContent = fmtTime(); document.getElementById('fbCheck').textContent = '✓'; updateComfortUI(computeComfort(lastTemp, lastHum)); updateAlerts(lastTemp, lastHum); updateRecommendation(lastTemp, lastHum); runAnalysis(); document.getElementById('connPill').innerHTML = '<span class="dot"></span> Sistema conectado'; document.getElementById('connPill').classList.remove('offline'); document.getElementById('statusDot').style.background = 'var(--green)'; document.getElementById('statusText').textContent = 'Estação online'; document.getElementById('stationState').textContent = 'ONLINE'; document.getElementById('stationState').style.color = 'var(--green)'; }
+function showOffline(){ document.getElementById('connPill').innerHTML = '<span class="dot"></span> Sem conexão'; document.getElementById('connPill').classList.add('offline'); document.getElementById('statusDot').style.background = 'var(--red)'; document.getElementById('statusText').textContent = 'Estação offline'; document.getElementById('stationState').textContent = 'OFFLINE'; document.getElementById('stationState').style.color = 'var(--red)'; }
+db.collection(READINGS_COLLECTION).orderBy('timestamp', 'desc').limit(MAX_POINTS).onSnapshot(snapshot => { if (snapshot.empty) return; const latest = snapshot.docs[0].data(); const temperature = Number(latest.temperatura); const humidity = Number(latest.umidade); if (!Number.isFinite(temperature) || !Number.isFinite(humidity)) return; lastTemp = temperature; lastHum = humidity; updateHistory(snapshot); handleReading(); }, showOffline);
