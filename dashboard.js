@@ -74,7 +74,7 @@ function setupRegionalMap(){
   mapElement.innerHTML = '';
   regionalMap = L.map(mapElement).setView([-8.11, -42.94], 10);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors', maxZoom: 19 }).addTo(regionalMap);
-  locationMarker = L.circleMarker([-8.11, -42.94], { radius: 8, color: '#ee7059', fillColor: '#ee7059', fillOpacity: .9 }).addTo(regionalMap);
+  locationMarker = L.circleMarker([-8.11, -42.94], { radius: 8, color: '#995bff', fillColor: '#995bff', fillOpacity: .9 }).addTo(regionalMap);
   locationMarker.bindPopup('<strong>Canto do Buriti</strong><br>-8.11, -42.94');
 }
 
@@ -88,7 +88,7 @@ function updateDeviceLocation(position){
   if (regionalMap) {
     regionalMap.setView([latitude, longitude], 12);
     if (locationMarker) locationMarker.setLatLng([latitude, longitude]);
-    else locationMarker = L.circleMarker([latitude, longitude], { radius: 8, color: '#ee7059', fillColor: '#ee7059', fillOpacity: .9 }).addTo(regionalMap);
+    else locationMarker = L.circleMarker([latitude, longitude], { radius: 8, color: '#995bff', fillColor: '#995bff', fillOpacity: .9 }).addTo(regionalMap);
     locationMarker.bindPopup('Sua localização atual');
   }
   fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}&zoom=10&addressdetails=1`)
@@ -159,19 +159,19 @@ function setupCharts(){
     data: {
       labels: [],
       datasets: [
-        { label: 'Temperatura °C', data: [], borderColor: '#ee7059', backgroundColor: 'rgba(238,112,89,.1)', tension: .35, pointRadius: 2, yAxisID: 'temp' },
-        { label: 'Umidade %', data: [], borderColor: '#4c9a91', backgroundColor: 'rgba(76,154,145,.1)', tension: .35, pointRadius: 2, yAxisID: 'hum' }
+        { label: 'Temperatura °C', data: [], borderColor: '#995bff', backgroundColor: 'rgba(153,91,255,.1)', tension: .35, pointRadius: 2, yAxisID: 'temp' },
+        { label: 'Umidade %', data: [], borderColor: '#339bef', backgroundColor: 'rgba(76,154,145,.1)', tension: .35, pointRadius: 2, yAxisID: 'hum' }
       ]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
-      plugins: { legend: { labels: { color: '#778087', boxWidth: 10, font: { family: 'DM Sans', size: 10 } } } },
+      plugins: { legend: { labels: { color: '#9ba8c3', boxWidth: 10, font: { family: 'DM Sans', size: 10 } } } },
       scales: {
-        x: { ticks: { color: '#778087' }, grid: { color: '#e6e1d8' } },
-        temp: { position: 'left', ticks: { color: '#ee7059' }, grid: { color: '#e6e1d8' } },
-        hum: { position: 'right', ticks: { color: '#4c9a91' }, grid: { display: false } }
+        x: { ticks: { color: '#9ba8c3' }, grid: { color: '#1a2540' } },
+        temp: { position: 'left', ticks: { color: '#995bff' }, grid: { color: '#1a2540' } },
+        hum: { position: 'right', ticks: { color: '#339bef' }, grid: { display: false } }
       }
     }
   };
@@ -223,6 +223,7 @@ function updateCurrent(){
   updateStats();
   updateTable();
   updateSensorStatus();
+  updateOverview();
 }
 
 function updateAlerts(){
@@ -242,6 +243,17 @@ function updateAlerts(){
   $('#alertList').innerHTML = alerts.length
     ? alerts.map(alert => `<div class="alert-item"><span class="alert-symbol">${alert[0]}</span><div><strong>${alert[1]}</strong><small>${alert[2]}</small></div><span class="alert-time">agora</span></div>`).join('')
     : '<div class="empty-state">Nenhum alerta no momento.</div>';
+}
+
+function updateOverview(){
+  if (!latest) return;
+  const online = isSensorOnline();
+  const comfort = comfortScore(latest.temp, latest.hum);
+  document.querySelector('#overviewRecommendationTitle').textContent = online ? (comfort >= 75 ? 'Ambiente agradável' : 'Atenção às condições') : 'Estação sem leituras recentes';
+  document.querySelector('#overviewRecommendation').textContent = online ? (comfort >= 75 ? 'As condições atuais estão adequadas. Continue acompanhando as próximas medições.' : 'Confira a central de alertas e acompanhe as próximas medições.') : 'Verifique a alimentação e a conexão da estação.';
+  document.querySelector('#overviewAlerts').innerHTML = document.querySelector('#alertList').innerHTML;
+  document.querySelector('#connPill').classList.toggle('is-offline', !online);
+  document.querySelector('#comfortValue').closest('.metric-card').style.setProperty('--comfort', comfort + '%');
 }
 
 function updateStats(){
@@ -264,7 +276,7 @@ function updateStats(){
 function updateTable(){
   const query = ($('#searchInput')?.value || '').toLowerCase();
   const filtered = readings.filter(item => formatDate(item.date).toLowerCase().includes(query));
-  $('#tableSummary').textContent = `${filtered.length} leitura${filtered.length === 1 ? '' : 's'} disponível${filtered.length === 1 ? '' : 'eis'}`;
+  $('#tableSummary').textContent = `${filtered.length} ${filtered.length === 1 ? 'leitura disponível' : 'leituras disponíveis'}`;
   $('#dataTable').innerHTML = filtered.map(item => {
     const comfort = comfortScore(item.temp, item.hum);
     const risk = fireRisk(item.temp, item.hum);
@@ -373,7 +385,7 @@ async function enableNotifications() {
 }
 
 async function tryRestoreFcmToken() {
-  if (!messaging || Notification.permission !== 'granted') return;
+  if (!messaging || !('Notification' in window) || Notification.permission !== 'granted') return;
   if (VAPID_KEY === 'SUBSTITUA_PELA_SUA_CHAVE_VAPID_AQUI') return;
   try {
     const registration = await navigator.serviceWorker.ready;
@@ -415,7 +427,7 @@ function start(){
   setupRegionalMap();
   setupThresholds();
   updateDayNight();
-  setInterval(() => { updateDayNight(); if (latest) updateSensorStatus(); }, 15000);
+  setInterval(() => { updateDayNight(); if (latest) { updateSensorStatus(); updateOverview(); } }, 15000);
   window.addEventListener('hashchange', navigate);
   window.addEventListener('offline', showOffline);
   window.addEventListener('online', showConnecting);

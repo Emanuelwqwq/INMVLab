@@ -1,0 +1,3 @@
+{
+  "functions": [{ "source": "functions", "codebase": "imnvlab-whatsapp", "ignore": ["node_modules", ".git", "*.test.js", ".env.example"] }]
+}

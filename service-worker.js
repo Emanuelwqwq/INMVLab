@@ -2,8 +2,8 @@
 importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js');
 
-const CACHE_NAME = 'imnvlab-v2';
-const APP_FILES = ['./', './index.html', './styles.css', './dashboard.js', './manifest.json'];
+const CACHE_NAME = 'imnvlab-v3';
+const APP_FILES = ['./', './index.html', './styles.css', './theme.css', './whatsapp.js', './dashboard.js', './manifest.json'];
 
 const firebaseConfig = {
   apiKey: 'AIzaSyBWDcTMNN4aUYywXhgUw_gJzlkB45F1foM',
