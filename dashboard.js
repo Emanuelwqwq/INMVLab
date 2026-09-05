@@ -154,7 +154,9 @@ const SitePush = (() => {
     const el = id => document.getElementById(id);
     const auth = firebase.auth();
     let settings = { ...defaults }, registered = false, available = null, busy = false, refreshTimer;
-    try { settings = { ...defaults, ...JSON.parse(localStorage.getItem('imnvlab-push-settings') || '{}') }; } catch {}
+    try { settings = { ...defaults, ...JSON.parse(localStorage.getItem('imnvlab-thresholds') || '{}'), ...JSON.parse(localStorage.getItem('imnvlab-push-settings') || '{}') }; } catch {}
+    function syncLimits(){ thresholds = { ...settings }; localStorage.setItem('imnvlab-thresholds', JSON.stringify(thresholds)); if(latest) updateCurrent(); }
+    syncLimits();
     let optedIn = localStorage.getItem('imnvlab-push-enabled') === 'true';
     const supported = !!messaging && window.isSecureContext && 'Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window;
     // Callable protocol without the Functions SDK's implicit Messaging.getToken().
@@ -256,7 +258,8 @@ const SitePush = (() => {
       try {
         if (registered) await subscribe();
         localStorage.setItem('imnvlab-push-settings', JSON.stringify(settings));
-        feedback(registered ? 'Preferências salvas no serviço automático.' : 'Preferências salvas neste navegador. Ative o push para receber os alertas.');
+        syncLimits();
+        feedback(registered ? 'Limites salvos para o painel e as notificações.' : 'Limites salvos no painel. Ative as notificações para receber os mesmos avisos neste aparelho.');
       } catch (error) { settings = previous; feedback(errorText(error)); }
       finally { busy = false; render(); }
     });
@@ -428,26 +431,6 @@ function fireRisk(temp, hum){
   return { label: 'baixo', className: 'low' };
 }
 
-function setupThresholds(){
-  const panel = $('.threshold-panel');
-  const box = document.createElement('div');
-  box.className = 'threshold-settings';
-  box.innerHTML = `<span class="eyebrow">SEUS LIMITES</span><label>Temperatura máxima <input id="maxTempInput" type="number" step="0.5" value="${thresholds.maxTemp}"> °C</label><label>Umidade mínima <input id="minHumInput" type="number" step="1" value="${thresholds.minHum}"> %</label><label>Umidade máxima <input id="maxHumInput" type="number" step="1" value="${thresholds.maxHum}"> %</label><button class="dark-button" id="saveThresholds">Salvar limites</button>`;
-  panel.append(box);
-  $('#saveThresholds').addEventListener('click', () => {
-    const max = Number($('#maxTempInput').value), minHum = Number($('#minHumInput').value), maxHum = Number($('#maxHumInput').value);
-    if (![max,minHum,maxHum].every(Number.isFinite) || max <= 18 || max > 80 || minHum < 0 || maxHum > 100 || minHum >= maxHum) { $('#saveThresholds').textContent = 'Confira os limites informados'; return; }
-    thresholds = {
-      maxTemp: Number($('#maxTempInput').value),
-      minHum: Number($('#minHumInput').value),
-      maxHum: Number($('#maxHumInput').value)
-    };
-    localStorage.setItem('imnvlab-thresholds', JSON.stringify(thresholds));
-    if (latest) updateCurrent();
-    $('#saveThresholds').textContent = 'Limites salvos';
-  });
-}
-
 function setupCharts(){
   const config = {
     type: 'line',
@@ -523,10 +506,10 @@ function updateCurrent(){
 
 function updateAlerts(){
   const alerts = [];
-  if (latest.temp > thresholds.maxTemp) alerts.push(['thermometer', 'Temperatura acima do limite', `Acima de ${thresholds.maxTemp}°C`]);
-  if (latest.hum > thresholds.maxHum) alerts.push(['drop', 'Umidade acima do limite', `Acima de ${thresholds.maxHum}%`]);
-  if (latest.hum < thresholds.minHum) alerts.push(['drop', 'Umidade abaixo do limite', `Abaixo de ${thresholds.minHum}%`]);
-  if (latest.temp < 18) alerts.push(['snow', 'Temperatura baixa', 'Ambiente abaixo de 18°C']);
+  if (thresholds.heat !== false && latest.temp > thresholds.maxTemp) alerts.push(['thermometer', 'Temperatura acima do limite', `Acima de ${thresholds.maxTemp}°C`]);
+  if (thresholds.humidity !== false && latest.hum > thresholds.maxHum) alerts.push(['drop', 'Umidade acima do limite', `Acima de ${thresholds.maxHum}%`]);
+  if (thresholds.humidity !== false && latest.hum < thresholds.minHum) alerts.push(['drop', 'Umidade abaixo do limite', `Abaixo de ${thresholds.minHum}%`]);
+  if (thresholds.cold !== false && latest.temp < (thresholds.minTemp ?? 18)) alerts.push(['snow', 'Temperatura baixa', `Ambiente abaixo de ${thresholds.minTemp ?? 18}°C`]);
   const signature = alerts.map(alert => alert[1]).join('|');
   lastAlertSignature = signature;
   $('#alertCount').textContent = alerts.length;
@@ -577,7 +560,7 @@ function navigate(){
   $$('nav a[data-page]').forEach(link => { link.classList.toggle('active', link.dataset.page === active); if(link.dataset.page === active) link.setAttribute('aria-current','page'); else link.removeAttribute('aria-current'); });
   $('#menuBackdrop').hidden = true;
   $('.sidebar').classList.remove('mobile-open');
-  $('#mobileMenu').setAttribute('aria-expanded', 'false');
+
   dayHistory?.setActive(active === 'dados');
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -608,7 +591,6 @@ function start(){
   dayHistory = StationHistory.create({ db, firebase, comfortScore, fireRisk });
   setupCharts();
   setupRegionalMap();
-  setupThresholds();
   updateDayNight();
   setInterval(() => { updateDayNight(); if (latest) { updateSensorStatus(); updateOverview(); } }, 15000);
   window.addEventListener('hashchange', navigate);
@@ -618,14 +600,6 @@ function start(){
   startLocationTracking();
   $('#locationButton').addEventListener('click', startLocationTracking);
   $('#locationButtonTop').addEventListener('click', startLocationTracking);
-  $('#mobileMenu').addEventListener('click', () => {
-    const open = $('.sidebar').classList.toggle('mobile-open');
-    $('#mobileMenu').setAttribute('aria-expanded', String(open));
-    $('#menuBackdrop').hidden = !open;
-  });
-  const closeMenu = () => { $('.sidebar').classList.remove('mobile-open'); $('#menuBackdrop').hidden = true; $('#mobileMenu').setAttribute('aria-expanded','false'); };
-  $('#menuBackdrop').addEventListener('click', closeMenu);
-  window.addEventListener('keydown', event => { if(event.key === 'Escape') closeMenu(); });
   $('#exportButton').addEventListener('click', exportCsv);
   $('#searchInput').addEventListener('input', updateTable);
   $('#runAnalysisButton').addEventListener('click', updateStats);

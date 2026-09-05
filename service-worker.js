@@ -1,5 +1,5 @@
 /* Cache and push receiver; click handler must precede Firebase. */
-const CACHE_NAME = 'imnvlab-v11', RECEIPTS = 'imnvlab-push-receipts';
+const CACHE_NAME = 'imnvlab-v12', RECEIPTS = 'imnvlab-push-receipts';
 const APP_FILES = ['./', './index.html', './styles.css', './dashboard.js', './manifest.json', './marca-ceti.jpeg', './icon-192.png', './icon-512.png'];
 const scopeUrl = new URL(self.registration.scope);
 function safeTarget(value) {
@@ -25,7 +25,7 @@ function displayPush(payload) {
     if (receipt && await receipts.match(receipt)) return;
     await self.registration.showNotification(data.title || payload.notification?.title || 'IMNVLab · Alerta', {
       body: data.body || payload.notification?.body || 'Nova condição ambiental detectada.',
-      icon: new URL('icon-192.png', scopeUrl).href, badge: new URL('icon-192.png', scopeUrl).href,
+      icon: new URL('marca-ceti.jpeg', scopeUrl).href,
       tag: data.tag || 'imnvlab-weather', data: { url: safeTarget(data.url) }
     });
     if (receipt) {
