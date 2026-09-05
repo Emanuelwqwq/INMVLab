@@ -150,17 +150,40 @@ const SitePush = (() => {
   const defaults = { minTemp: 18, maxTemp: 30, minHum: 30, maxHum: 70, heat: true, cold: true, humidity: true, recovery: true, offline: true };
   function create({ firebase, messaging, vapidKey }) {
     const el = id => document.getElementById(id);
-    const auth = firebase.auth(), functions = firebase.app().functions('southamerica-east1');
-    let settings = { ...defaults }, registered = false, available = false, busy = false, refreshTimer;
+    const auth = firebase.auth();
+    let settings = { ...defaults }, registered = false, available = null, busy = false, refreshTimer;
     try { settings = { ...defaults, ...JSON.parse(localStorage.getItem('imnvlab-push-settings') || '{}') }; } catch {}
     let optedIn = localStorage.getItem('imnvlab-push-enabled') === 'true';
     const supported = !!messaging && window.isSecureContext && 'Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window;
-    const call = async (name, data) => (await functions.httpsCallable(name, { timeout: 15000 })(data)).data;
+    // Callable protocol without the Functions SDK's implicit Messaging.getToken().
+    // Only subscribe() obtains a push token, using our worker and VAPID key.
+    async function call(name, data = {}) {
+      const headers = { 'Content-Type': 'application/json' };
+      if (name !== 'pushStatus' && auth.currentUser) headers.Authorization = 'Bearer ' + await auth.currentUser.getIdToken();
+      const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 30000);
+      try {
+        const response = await fetch(`https://southamerica-east1-${firebase.app().options.projectId}.cloudfunctions.net/${name}`, {
+          method: 'POST', headers, body: JSON.stringify({ data }), signal: controller.signal
+        });
+        const body = await response.json();
+        if (!response.ok || body.error) {
+          const error = new Error('Falha na chamada do serviço');
+          error.code = 'functions/' + (body.error?.status || 'unavailable').toLowerCase().replaceAll('_', '-');
+          throw error;
+        }
+        return body.result ?? body.data;
+      } finally { clearTimeout(timer); }
+    }
+    async function checkService() {
+      try { available = (await call('pushStatus'))?.available === true; }
+      catch (error) { available = false; throw error; }
+      if (!available) throw new Error('service-unavailable');
+    }
     const feedback = text => { el('pushFeedback').textContent = text; };
     function render() {
       const permission = 'Notification' in window ? Notification.permission : 'unsupported';
       el('pushStatus').textContent = !supported ? 'Não disponível neste navegador' : registered ? '● Ativo neste dispositivo' : permission === 'denied' ? 'Permissão bloqueada' : '○ Desativado neste dispositivo';
-      el('pushServiceStatus').textContent = available ? 'Serviço automático disponível' : 'Serviço automático ainda indisponível';
+      el('pushServiceStatus').textContent = available === null ? 'Verificando serviço automático…' : available ? 'Serviço automático disponível' : 'Não foi possível acessar o serviço automático';
       el('pushEnable').disabled = busy || !supported || registered;
       el('pushDisable').disabled = busy || !optedIn;
       el('pushTest').disabled = busy || !registered;
@@ -173,7 +196,7 @@ const SitePush = (() => {
       return Promise.race([navigator.serviceWorker.ready, new Promise((_, reject) => { const timer = setTimeout(() => reject(new Error('service-worker-timeout')), 15000); navigator.serviceWorker.ready.then(() => clearTimeout(timer)); })]);
     }
     async function subscribe() {
-      await call('pushStatus'); available = true;
+      await checkService();
       if (!auth.currentUser) await auth.signInAnonymously();
       const worker = await registration();
       const token = await messaging.getToken({ vapidKey, serviceWorkerRegistration: worker });
@@ -187,7 +210,9 @@ const SitePush = (() => {
       if (error.code?.startsWith('auth/')) return 'O Firebase Authentication precisa permitir acesso anônimo para cadastrar este dispositivo. Nenhum login pessoal é necessário.';
       if (error.code === 'functions/invalid-argument') return 'Confira os limites: a mínima precisa ser menor que a máxima, e a umidade deve ficar entre 0 e 100%.';
       if (error.code === 'functions/resource-exhausted') return 'Aguarde um minuto antes de testar novamente.';
-      if (error.code?.startsWith('messaging/')) return 'Não foi possível cadastrar o push. Confira a chave Web Push do Firebase e as permissões deste navegador.';
+      if (error.code === 'messaging/permission-blocked' || error.name === 'NotAllowedError') return 'O navegador bloqueou o push. Permita notificações nas configurações deste site e tente novamente.';
+      if (error.code === 'messaging/failed-service-worker-registration' || error.message === 'service-worker-timeout') return 'Não foi possível iniciar as notificações em segundo plano. Atualize a página e tente novamente. Código: ' + (error.code || 'service-worker-timeout');
+      if (error.code?.startsWith('messaging/') || error.name === 'AbortError' || error.name === 'InvalidStateError') return 'O cadastro de notificações não foi concluído neste navegador. Tente novamente; se persistir, informe este código: ' + (error.code || error.name) + '.';
       return 'Não foi possível concluir. Verifique a conexão e se o serviço de push foi publicado no Firebase. Nenhuma ativação foi confirmada.';
     }
     async function enable() {
@@ -248,10 +273,10 @@ const SitePush = (() => {
       if (!supported || busy) return;
       busy = true; render();
       try {
-        await call('pushStatus'); available = true;
+        await checkService();
         if (optedIn && Notification.permission === 'granted') { await subscribe(); feedback('Push ativo. As preferências são específicas deste dispositivo.'); }
         else if (optedIn && auth.currentUser) { await call('disablePush'); registered = false; optedIn = false; localStorage.setItem('imnvlab-push-enabled', 'false'); }
-      } catch { available = false; registered = false; feedback('Para receber alertas com o site fechado, conclua a publicação do serviço no Firebase.'); }
+      } catch (error) { registered = false; feedback(errorText(error)); }
       finally { busy = false; render(); }
     }
     auth.onAuthStateChanged(() => { clearTimeout(refreshTimer); refreshTimer = setTimeout(restore, 0); });
@@ -266,7 +291,7 @@ const SitePush = (() => {
 // Painel da estação
 const firebaseConfig = { apiKey: "AIzaSyBWDcTMNN4aUYywXhgUw_gJzlkB45F1foM", authDomain: "climat-7c7f7.firebaseapp.com", projectId: "climat-7c7f7", storageBucket: "climat-7c7f7.firebasestorage.app", messagingSenderId: "267164246485", appId: "1:267164246485:web:a72b776b880ba5b8b71d5c" };
 
-/* ⚠️ SUBSTITUA pela sua chave VAPID (Firebase Console → Project settings → Cloud Messaging → Web Push certificates) */
+// Chave pública conferida no Firebase Console em 05/09/2026.
 const VAPID_KEY = 'BNEXQLVGXD7XSZ3dsOln7xqJkgqxDpb5OxwLv54CrQnYjEjvwq4zEUhFly4V2rh7i2MQYFDYU19GDyRPZgojIas';
 
 const MAX_POINTS = 20;
