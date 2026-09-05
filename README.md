@@ -6,9 +6,9 @@ Site de monitoramento climático com histórico por dia e notificações push.
 
 Envie os arquivos deste projeto, incluindo a pasta `functions`. **Não envie `node_modules`**: as dependências são instaladas apenas quando forem necessárias. O `.gitignore` já exclui dependências, arquivos temporários e credenciais.
 
-O site usa apenas `index.html`, `styles.css`, `dashboard.js`, `service-worker.js`, `manifest.json` e os dois ícones PNG. JavaScript e CSS foram unificados para reduzir o número de arquivos.
+O site usa apenas `index.html`, `styles.css`, `dashboard.js`, `service-worker.js`, `manifest.json`, `marca-ceti.jpeg` e os dois ícones PNG. JavaScript e CSS foram unificados para reduzir o número de arquivos.
 
-O `vercel.json` copia somente esses sete arquivos para a publicação. A pasta `functions`, as configurações do Firebase e esta documentação não são servidas aos visitantes. Na Vercel, conecte o repositório do site `https://inmv-lab.vercel.app` e deixe as configurações de build seguirem o `vercel.json`. Não é necessário instalar dependências para executar o site.
+O `vercel.json` copia somente esses oito arquivos para a publicação. A pasta `functions`, as configurações do Firebase e esta documentação não são servidas aos visitantes. Na Vercel, conecte o repositório do site `https://inmv-lab.vercel.app` e deixe as configurações de build seguirem o `vercel.json`. Não é necessário instalar dependências para executar o site.
 
 ## Push: estado da implantação
 

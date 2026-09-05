@@ -1,3 +1,5 @@
+const interfaceIcons = {"thermometer":"<path d=\"M9 14.5V5a3 3 0 0 1 6 0v9.5a5 5 0 1 1-6 0Z\"/><path d=\"M12 7v11\"/><circle cx=\"12\" cy=\"18\" r=\"1.5\" fill=\"currentColor\"/>","drop":"<path d=\"M12 3S5 10.5 5 15a7 7 0 0 0 14 0c0-4.5-7-12-7-12Z\" fill=\"currentColor\" fill-opacity=\".2\"/><path d=\"M8 15a4 4 0 0 0 4 4\"/>","smile":"<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M8 14a4.5 4.5 0 0 0 8 0M8 9h.01M16 9h.01\"/>","chip":"<rect x=\"6\" y=\"6\" width=\"12\" height=\"12\" rx=\"2\"/><path d=\"M9 9h6v6H9zM9 2v4m6-4v4M9 18v4m6-4v4M2 9h4m-4 6h4M18 9h4m-4 6h4\"/>","home":"<path d=\"m3 10 9-7 9 7M5 9v11h5v-6h4v6h5V9\"/>","data":"<rect x=\"4\" y=\"4\" width=\"16\" height=\"17\" rx=\"2\"/><path d=\"M8 2v4m8-4v4M4 9h16M8 13h2m4 0h2m-8 4h2m4 0h2\"/>","bell":"<path d=\"M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4\"/>","chart":"<path d=\"M4 3v17h17M7 14l4-5 4 3 6-7\"/>","info":"<circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M12 11v6m0-10h.01\"/>","bulb":"<path d=\"M9 18h6m-5 3h4M8 14a7 7 0 1 1 8 0c-1 1-1 2-1 2H9s0-1-1-2Z\"/>","wifi":"<path d=\"M2 8a16 16 0 0 1 20 0M5 12a11 11 0 0 1 14 0m-11 4a6 6 0 0 1 8 0M12 20h.01\"/>","fire":"<path d=\"M13 2c2 6-4 7-2 11 2-1 3-3 3-5 5 4 7 7 4 11a8 8 0 0 1-13-1C2 12 8 8 8 5c0 4 2 5 2 5s3-4 3-8Z\"/>","monitor":"<rect x=\"3\" y=\"3\" width=\"18\" height=\"13\" rx=\"2\"/><path d=\"M12 16v5m-5 0h10\"/>","check":"<path d=\"m5 12 4 4L19 6\"/>","snow":"<path d=\"M12 2v20M3.3 7l17.4 10M3.3 17 20.7 7M9 4l3 3 3-3M9 20l3-3 3 3\"/>"};
+function interfaceIcon(name){ return `<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${interfaceIcons[name] || interfaceIcons.info}</svg>`; }
 // Consulta diária
 (function(root) {
   const ZONE = 'America/Fortaleza';
@@ -188,7 +190,10 @@ const SitePush = (() => {
       el('pushDisable').disabled = busy || !optedIn;
       el('pushTest').disabled = busy || !registered;
       el('pushSave').disabled = busy;
-      el('notifyButton').textContent = registered ? '◉ Push ativo' : '◉ Ativar notificações';
+      el('notifyButton').innerHTML = interfaceIcon('bell') + ' Notificações';
+      el('pushEnable').hidden = registered;
+      el('pushTest').hidden = !registered;
+      el('pushDisable').hidden = !optedIn;
       el('notifyButton').disabled = busy;
     }
     async function registration() {
@@ -430,6 +435,8 @@ function setupThresholds(){
   box.innerHTML = `<span class="eyebrow">SEUS LIMITES</span><label>Temperatura máxima <input id="maxTempInput" type="number" step="0.5" value="${thresholds.maxTemp}"> °C</label><label>Umidade mínima <input id="minHumInput" type="number" step="1" value="${thresholds.minHum}"> %</label><label>Umidade máxima <input id="maxHumInput" type="number" step="1" value="${thresholds.maxHum}"> %</label><button class="dark-button" id="saveThresholds">Salvar limites</button>`;
   panel.append(box);
   $('#saveThresholds').addEventListener('click', () => {
+    const max = Number($('#maxTempInput').value), minHum = Number($('#minHumInput').value), maxHum = Number($('#maxHumInput').value);
+    if (![max,minHum,maxHum].every(Number.isFinite) || max <= 18 || max > 80 || minHum < 0 || maxHum > 100 || minHum >= maxHum) { $('#saveThresholds').textContent = 'Confira os limites informados'; return; }
     thresholds = {
       maxTemp: Number($('#maxTempInput').value),
       minHum: Number($('#minHumInput').value),
@@ -516,17 +523,17 @@ function updateCurrent(){
 
 function updateAlerts(){
   const alerts = [];
-  if (latest.temp > thresholds.maxTemp) alerts.push(['🔥', 'Temperatura acima do limite', `Acima de ${thresholds.maxTemp}°C`]);
-  if (latest.hum > thresholds.maxHum) alerts.push(['◌', 'Umidade acima do limite', `Acima de ${thresholds.maxHum}%`]);
-  if (latest.hum < thresholds.minHum) alerts.push(['◌', 'Umidade abaixo do limite', `Abaixo de ${thresholds.minHum}%`]);
-  if (latest.temp < 18) alerts.push(['❄', 'Temperatura baixa', 'Ambiente abaixo de 18°C']);
+  if (latest.temp > thresholds.maxTemp) alerts.push(['thermometer', 'Temperatura acima do limite', `Acima de ${thresholds.maxTemp}°C`]);
+  if (latest.hum > thresholds.maxHum) alerts.push(['drop', 'Umidade acima do limite', `Acima de ${thresholds.maxHum}%`]);
+  if (latest.hum < thresholds.minHum) alerts.push(['drop', 'Umidade abaixo do limite', `Abaixo de ${thresholds.minHum}%`]);
+  if (latest.temp < 18) alerts.push(['snow', 'Temperatura baixa', 'Ambiente abaixo de 18°C']);
   const signature = alerts.map(alert => alert[1]).join('|');
   lastAlertSignature = signature;
   $('#alertCount').textContent = alerts.length;
   $('#alertBadge').textContent = alerts.length;
   $('#alertHeadline').textContent = alerts.length ? `${alerts.length} ponto${alerts.length > 1 ? 's' : ''} pede atenção` : 'Tudo sob controle';
   $('#alertList').innerHTML = alerts.length
-    ? alerts.map(alert => `<div class="alert-item"><span class="alert-symbol">${alert[0]}</span><div><strong>${alert[1]}</strong><small>${alert[2]}</small></div><span class="alert-time">agora</span></div>`).join('')
+    ? alerts.map(alert => `<div class="alert-item"><span class="alert-symbol">${interfaceIcon(alert[0])}</span><div><strong>${alert[1]}</strong><small>${alert[2]}</small></div><span class="alert-time">agora</span></div>`).join('')
     : '<div class="empty-state">Nenhum alerta no momento.</div>';
 }
 
@@ -567,7 +574,8 @@ function navigate(){
   const valid = ['dashboard','dados','alertas','analises','sobre'];
   const active = valid.includes(view) ? view : 'dashboard';
   $$('.page').forEach(page => page.classList.toggle('hidden', page.dataset.view !== active));
-  $$('nav a[data-page]').forEach(link => link.classList.toggle('active', link.dataset.page === active));
+  $$('nav a[data-page]').forEach(link => { link.classList.toggle('active', link.dataset.page === active); if(link.dataset.page === active) link.setAttribute('aria-current','page'); else link.removeAttribute('aria-current'); });
+  $('#menuBackdrop').hidden = true;
   $('.sidebar').classList.remove('mobile-open');
   $('#mobileMenu').setAttribute('aria-expanded', 'false');
   dayHistory?.setActive(active === 'dados');
@@ -613,11 +621,15 @@ function start(){
   $('#mobileMenu').addEventListener('click', () => {
     const open = $('.sidebar').classList.toggle('mobile-open');
     $('#mobileMenu').setAttribute('aria-expanded', String(open));
+    $('#menuBackdrop').hidden = !open;
   });
+  const closeMenu = () => { $('.sidebar').classList.remove('mobile-open'); $('#menuBackdrop').hidden = true; $('#mobileMenu').setAttribute('aria-expanded','false'); };
+  $('#menuBackdrop').addEventListener('click', closeMenu);
+  window.addEventListener('keydown', event => { if(event.key === 'Escape') closeMenu(); });
   $('#exportButton').addEventListener('click', exportCsv);
   $('#searchInput').addEventListener('input', updateTable);
   $('#runAnalysisButton').addEventListener('click', updateStats);
-  $('#notifyButton').addEventListener('click', enableNotifications);
+  $('#notifyButton').addEventListener('click', () => { location.hash = '#alertas'; });
 
   pushController = SitePush.create({ firebase, messaging, vapidKey: VAPID_KEY });
 
@@ -637,3 +649,18 @@ function start(){
 }
 
 start();
+// Lumi: comandos locais, sem chave de IA ou envio automático do microfone.
+(function setupGuide(){
+ const panel=document.getElementById('guidePanel'), toggle=document.getElementById('guideToggle'), reply=document.getElementById('guideReply'), field=document.getElementById('guideText'), speak=document.getElementById('guideSpeak');
+ let recognition;
+ function answer(text){reply.textContent=text;if(speak.checked && 'speechSynthesis' in window){speechSynthesis.cancel();const voice=new SpeechSynthesisUtterance(text);voice.lang='pt-BR';speechSynthesis.speak(voice);}}
+ function close(){panel.hidden=true;toggle.setAttribute('aria-expanded','false');recognition?.abort();window.speechSynthesis?.cancel();toggle.focus();}
+ toggle.addEventListener('click',()=>{if(!panel.hidden)return close();panel.hidden=false;toggle.setAttribute('aria-expanded','true');field.focus();});document.getElementById('guideClose').addEventListener('click',close);
+ const descriptions={dashboard:'No início você encontra temperatura, umidade e conforto. Toque em Dados para consultar um dia ou em Alertas para ver o que precisa de atenção.',dados:'Escolha um dia da semana ou uma data. A tabela mostra as medições desse dia. Você também pode buscar um horário e exportar os dados.',alertas:'Veja os alertas atuais. Para receber avisos neste aparelho, toque em Ativar notificações. Em Escolher alertas e limites você personaliza os avisos.',analises:'Esta página resume as leituras recentes de hoje, com médias e variação da temperatura.',sobre:'Aqui você conhece a estação e como o sensor envia as medições para o site.'};
+ function command(raw){const text=raw.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');let page;if(/explic|ajud|esta tela/.test(text)){answer(descriptions[location.hash.slice(1)]||descriptions.dashboard);return;}if(/ontem|hoje|dados|historico/.test(text))page='dados';else if(/alert|notifica/.test(text))page='alertas';else if(/analis/.test(text))page='analises';else if(/sobre|como funciona/.test(text))page='sobre';else if(/inicio|dashboard|principal/.test(text))page='dashboard';if(!page){answer('Posso abrir Início, Dados, Alertas, Análises ou Sobre. Experimente “dados de ontem” ou “explicar esta tela”.');return;}location.hash='#'+page;navigate();if(page==='dados'&&/ontem|hoje/.test(text)){const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Fortaleza',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());const p=Object.fromEntries(parts.map(v=>[v.type,v.value]));const day=new Date(`${p.year}-${p.month}-${p.day}T12:00:00-03:00`);if(text.includes('ontem'))day.setUTCDate(day.getUTCDate()-1);const date=document.getElementById('historyDate');date.value=day.toISOString().slice(0,10);date.dispatchEvent(new Event('change',{bubbles:true}));}answer('Pronto. '+descriptions[page]);}
+ document.getElementById('guideForm').addEventListener('submit',e=>{e.preventDefault();command(field.value);});document.querySelectorAll('[data-guide]').forEach(button=>button.addEventListener('click',()=>command(button.dataset.guide)));
+ const listen=document.getElementById('guideListen'), Recognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+ if(!Recognition){listen.disabled=true;listen.textContent='Voz indisponível';}
+ else{recognition=new Recognition();recognition.lang='pt-BR';recognition.continuous=false;recognition.interimResults=false;recognition.onresult=e=>{field.value=e.results[0][0].transcript;command(field.value);};recognition.onerror=()=>answer('Não consegui ouvir. Confira a permissão do microfone ou digite seu pedido.');recognition.onend=()=>{listen.disabled=false;listen.textContent='Falar com Lumi';};listen.addEventListener('click',()=>{window.speechSynthesis?.cancel();try{recognition.start();listen.disabled=true;listen.textContent='Ouvindo…';}catch{answer('Tente novamente ou digite seu pedido.');}});}
+ window.addEventListener('keydown',e=>{if(e.key==='Escape'&&!panel.hidden)close();});
+})();

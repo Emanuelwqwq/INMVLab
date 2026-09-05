@@ -1,6 +1,6 @@
 /* Cache and push receiver; click handler must precede Firebase. */
-const CACHE_NAME = 'imnvlab-v7', RECEIPTS = 'imnvlab-push-receipts';
-const APP_FILES = ['./', './index.html', './styles.css', './dashboard.js', './manifest.json', './icon-192.png', './icon-512.png'];
+const CACHE_NAME = 'imnvlab-v10', RECEIPTS = 'imnvlab-push-receipts';
+const APP_FILES = ['./', './index.html', './styles.css', './dashboard.js', './manifest.json', './marca-ceti.jpeg', './icon-192.png', './icon-512.png'];
 const scopeUrl = new URL(self.registration.scope);
 function safeTarget(value) {
   try { const url = new URL(value || 'index.html#alertas', scopeUrl); if (url.origin === scopeUrl.origin && url.pathname.startsWith(scopeUrl.pathname)) return url.href; } catch {}
@@ -39,12 +39,13 @@ function displayPush(payload) {
 self.addEventListener('message', event => {
   if (event.data?.type === 'IMNV_PUSH') event.waitUntil(displayPush(event.data.payload || {}));
 });
-try {
-  importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js');
-  importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js');
-  firebase.initializeApp({ apiKey: 'AIzaSyBWDcTMNN4aUYywXhgUw_gJzlkB45F1foM', authDomain: 'climat-7c7f7.firebaseapp.com', projectId: 'climat-7c7f7', storageBucket: 'climat-7c7f7.firebasestorage.app', messagingSenderId: '267164246485', appId: '1:267164246485:web:a72b776b880ba5b8b71d5c' });
-  firebase.messaging().onBackgroundMessage(payload => { if (!payload.notification) return displayPush(payload); });
-} catch (error) { console.warn('Push indisponível no service worker:', error.message); }
+// Native push reception also works without loading Firebase scripts on worker startup.
+self.addEventListener('push', event => {
+  if (!event.data) return;
+  let payload;
+  try { payload = event.data.json(); } catch { return; }
+  event.waitUntil(displayPush(payload));
+});
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(APP_FILES))); self.skipWaiting();
 });
