@@ -324,6 +324,7 @@ const formatDate = date => date.toLocaleString('pt-BR', { weekday: 'long', day: 
 function updateDayNight(){
   const now = new Date();
   const hour = now.getHours() + now.getMinutes() / 60;
+  $('#timeGreeting').textContent = hour >= 6 && hour < 12 ? 'Bom dia!' : hour >= 12 && hour < 18 ? 'Boa tarde!' : 'Boa noite!';
   const night = hour < 6 || hour >= 18;
   document.body.classList.toggle('night-mode', night);
   $('#weatherIcon').textContent = night ? '☾' : '☼';
