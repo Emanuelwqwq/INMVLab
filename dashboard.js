@@ -333,24 +333,25 @@ function updateDayNight(){
 function readingDate(value){
   if (value && typeof value.toDate === 'function') return value.toDate();
   if (typeof value === 'number') return new Date(value > 10000000000 ? value : value * 1000);
-  return value ? new Date(value) : new Date();
+  return value ? new Date(value) : new Date(NaN);
 }
 
 function isSensorOnline(){
-  return lastReadingAt instanceof Date && Date.now() - lastReadingAt.getTime() <= SENSOR_TIMEOUT_MS;
+  return lastReadingAt instanceof Date && Number.isFinite(lastReadingAt.getTime()) && lastReadingAt.getTime() <= Date.now() + 30000 && Date.now() - lastReadingAt.getTime() <= SENSOR_TIMEOUT_MS;
 }
 
 function updateSensorStatus(){
+  updateFreshness();
   if (!latest || !isSensorOnline()) {
-    $('#statusText').textContent = 'Arduino offline';
-    $('#connPill').innerHTML = '<i></i> Arduino offline';
+    $('#statusText').textContent = 'Estação offline';
+    $('#connPill').innerHTML = '<i></i> Estação offline';
     $('#statusDot').style.background = 'var(--coral)';
     $('#stationState').textContent = 'OFFLINE';
     $('#stationState').style.color = 'var(--coral)';
-    $('#alertHeadline').textContent = 'Arduino sem enviar dados';
+    $('#alertHeadline').textContent = 'Estação sem enviar dados';
     $('#alertBadge').textContent = '1';
     $('#alertCount').textContent = '1';
-    $('#alertList').innerHTML = '<div class="alert-item"><span class="alert-symbol">!</span><div><strong>Arduino offline</strong><small>Nenhuma leitura nova há mais de 2 minutos.</small></div><span class="alert-time">agora</span></div>';
+    $('#alertList').innerHTML = '<div class="alert-item"><span class="alert-symbol">!</span><div><strong>Estação offline</strong><small>Nenhuma leitura nova há mais de 2 minutos.</small></div><span class="alert-time">agora</span></div>';
     sensorOfflineNotified = true;
     return false;
   }
@@ -454,7 +455,7 @@ function setupCharts(){
     }
   };
   historyChart = new Chart($('#historyChart'), config);
-  analysisChart = new Chart($('#analysisChart'), { ...config, data: { labels: [], datasets: [config.data.datasets[0]] } });
+  analysisChart = new Chart($('#analysisChart'), { ...config, data: { labels: [], datasets: [{ ...config.data.datasets[0], data: [] }] } });
 }
 
 function updateCharts(){
@@ -466,9 +467,7 @@ function updateCharts(){
   historyChart.data.datasets[0].data = temps;
   historyChart.data.datasets[1].data = hums;
   historyChart.update();
-  analysisChart.data.labels = labels;
-  analysisChart.data.datasets[0].data = temps;
-  analysisChart.update();
+
 }
 
 function updateCurrent(){
@@ -531,21 +530,51 @@ function updateOverview(){
   document.querySelector('#comfortValue').closest('.metric-card').style.setProperty('--comfort', comfort + '%');
 }
 
+let dailyAnalysis = { key: '', items: [], state: 'idle', at: 0 }, analysisRequest = 0;
+function updateFreshness(){
+ const note = document.getElementById('freshnessNote'); if(!note)return;
+ const valid = latest && Number.isFinite(latest.date?.getTime()), fresh = valid && isSensorOnline() && navigator.onLine;
+ note.classList.toggle('stale', !fresh);
+ note.textContent = !valid ? 'Aguardando uma medição válida da estação.' : (fresh ? 'Última medição: ' : 'Dados desatualizados · última medição: ') + latest.date.toLocaleString('pt-BR', { timeZone:'America/Fortaleza' }) + (fresh ? ' · horário de Canto do Buriti.' : '. Os valores exibidos não confirmam as condições de agora.');
+ document.querySelector('.kpi-grid').classList.toggle('stale-values', !fresh);
+}
+async function loadDailyAnalysis(force = false){
+ const key = StationHistory.dayKey();
+ if(!force && dailyAnalysis.key === key && (dailyAnalysis.state === 'loading' || Date.now()-dailyAnalysis.at < 60000))return;
+ const request=++analysisRequest;
+ dailyAnalysis={key,items:[],state:'loading',at:0};updateStats();
+ const {start,end}=StationHistory.bounds(key);
+ const ranges=[[firebase.firestore.Timestamp.fromDate(start),firebase.firestore.Timestamp.fromDate(end)],[start.getTime(),end.getTime()],[start.getTime()/1000,end.getTime()/1000],[StationHistory.shift(key,-1),StationHistory.shift(key,2)]];
+ let timeout;
+ try{
+  const snapshots=await Promise.race([Promise.all(ranges.map(([from,to])=>db.collection('leituras').where('timestamp','>=',from).where('timestamp','<',to).orderBy('timestamp','desc').get({source:'server'}))),new Promise((_,reject)=>{timeout=setTimeout(()=>reject(new Error('timeout')),20000);})]);
+  if(request!==analysisRequest)return;
+  if(key!==StationHistory.dayKey()){dailyAnalysis.state='idle';return loadDailyAnalysis(true);}
+  dailyAnalysis={key,items:StationHistory.combine(snapshots.map(s=>s.docs),key).filter(r=>r.date.getTime()<=Date.now()+30000&&r.temp>=-40&&r.temp<=80&&r.hum>=0&&r.hum<=100),state:'ready',at:Date.now()};
+ }catch{if(request===analysisRequest)dailyAnalysis={key,items:[],state:'error',at:0};}
+ finally{clearTimeout(timeout);if(request===analysisRequest)updateStats();}
+}
 function updateStats(){
-  const temps = readings.map(item => item.temp);
-  const hums = readings.map(item => item.hum);
-  if (!temps.length) return;
-  const max = readings.reduce((a, b) => a.temp > b.temp ? a : b);
-  $('#avgTemp').textContent = `${(temps.reduce((a,b) => a+b, 0) / temps.length).toFixed(1)}°C`;
-  $('#avgHum').textContent = `${Math.round(hums.reduce((a,b) => a+b, 0) / hums.length)}%`;
-  $('#maxTemp').textContent = `${max.temp.toFixed(1)}°C`;
-  $('#maxTempTime').textContent = formatDate(max.date);
-  $('#validReadings').textContent = readings.length;
-  $('#dailyTitle').textContent = temps[temps.length - 1] > temps[0] ? 'O dia está aquecendo' : 'Temperatura estável';
-  $('#dailyText').textContent = `A média observada foi de ${(temps.reduce((a,b) => a+b, 0) / temps.length).toFixed(1)}°C, com umidade média de ${Math.round(hums.reduce((a,b) => a+b, 0) / hums.length)}%.`;
-  $('#dailyRecommendation').textContent = latest.hum < 40
-    ? 'Priorize ventilação e hidratação durante os períodos mais quentes.'
-    : 'As condições permitem seguir com as atividades habituais, mantendo o acompanhamento.';
+ const {items,state,key}=dailyAnalysis, ready=state==='ready'&&key===StationHistory.dayKey(), has=ready&&items.length;
+ $('#runAnalysisButton').disabled=state==='loading';
+ $('#runAnalysisButton').textContent=state==='loading'?'Consultando hoje…':'Atualizar análise';
+ const status=$('#analysisStatus');
+ status.textContent=state==='loading'?'Buscando todas as medições de hoje…':state==='error'?'Não foi possível consultar o dia completo. Confira sua conexão e tente atualizar.':ready?items.length+' leituras de hoje · atualizado às '+new Date(dailyAnalysis.at).toLocaleTimeString('pt-BR',{timeZone:'America/Fortaleza',hour:'2-digit',minute:'2-digit'})+' · UTC−3.':'Abra esta página para consultar as medições de hoje.';
+ for(const id of ['avgTemp','avgHum','maxTemp'])$('#'+id).textContent='—';
+ $('#validReadings').textContent=ready?items.length:'—';$('#maxTempTime').textContent='Sem horário disponível';
+ $('#dailyTitle').textContent=state==='error'?'Análise indisponível':state==='loading'?'Consultando as medições':has?'Resumo de hoje':'Sem medições de hoje';
+ $('#dailyText').textContent='Nenhuma conclusão é calculada sem medições confirmadas do dia.';
+ $('#dailyRecommendation').textContent='Aguarde as leituras ou consulte outra data em Dados.';
+ const ordered=has?[...items].reverse():[];
+ analysisChart.data.labels=ordered.map(r=>r.date.toLocaleTimeString('pt-BR',{timeZone:'America/Fortaleza',hour:'2-digit',minute:'2-digit'}));
+ analysisChart.data.datasets[0].data=ordered.map(r=>r.temp);analysisChart.update();
+ if(!has)return;
+ const sum=items.reduce((s,r)=>({temp:s.temp+r.temp,hum:s.hum+r.hum,max:r.temp>s.max.temp?r:s.max}),{temp:0,hum:0,max:items[0]}), decimal=n=>n.toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1});
+ $('#avgTemp').textContent=decimal(sum.temp/items.length)+' °C';$('#avgHum').textContent=decimal(sum.hum/items.length)+'%';$('#maxTemp').textContent=decimal(sum.max.temp)+' °C';$('#maxTempTime').textContent=sum.max.date.toLocaleTimeString('pt-BR',{timeZone:'America/Fortaleza',hour:'2-digit',minute:'2-digit'});
+ const change=items[0].temp-items[items.length-1].temp;
+ $('#dailyTitle').textContent=items.length<2?'Primeira medição de hoje':Math.abs(change)<0.5?'Pouca variação entre a primeira e a última leitura':change>0?'Última leitura mais quente que a primeira':'Última leitura mais fria que a primeira';
+ $('#dailyText').textContent='Média de '+decimal(sum.temp/items.length)+' °C e '+decimal(sum.hum/items.length)+'% de umidade, considerando todas as '+items.length+' medições registradas hoje até esta consulta. A média é por leitura; períodos sem dados não são estimados.';
+ $('#dailyRecommendation').textContent=Date.now()-items[0].date.getTime()>SENSOR_TIMEOUT_MS?'A última medição está desatualizada. Verifique a conexão da estação antes de avaliar as condições atuais.':'Acompanhe mudanças em Alertas e use Dados para consultar horários específicos.';
 }
 
 let dayHistory;
@@ -562,6 +591,7 @@ function navigate(){
   $('.sidebar').classList.remove('mobile-open');
 
   dayHistory?.setActive(active === 'dados');
+  if(active==='analises')loadDailyAnalysis();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -569,6 +599,7 @@ let pushController;
 function enableNotifications(){ return pushController.enable(); }
 
 function showOffline(){
+  updateFreshness();
   $('#statusText').textContent = 'Estação offline';
   $('#connPill').innerHTML = '<i></i> sem conexão';
   $('#statusDot').style.background = 'var(--coral)';
@@ -592,7 +623,7 @@ function start(){
   setupCharts();
   setupRegionalMap();
   updateDayNight();
-  setInterval(() => { updateDayNight(); if (latest) { updateSensorStatus(); updateOverview(); } }, 15000);
+  setInterval(() => { if(location.hash==='#analises' && !document.hidden)loadDailyAnalysis(); updateDayNight(); if (latest) { updateSensorStatus(); updateOverview(); } }, 15000);
   window.addEventListener('hashchange', navigate);
   window.addEventListener('offline', showOffline);
   window.addEventListener('online', showConnecting);
@@ -602,7 +633,7 @@ function start(){
   $('#locationButtonTop').addEventListener('click', startLocationTracking);
   $('#exportButton').addEventListener('click', exportCsv);
   $('#searchInput').addEventListener('input', updateTable);
-  $('#runAnalysisButton').addEventListener('click', updateStats);
+  $('#runAnalysisButton').addEventListener('click', () => loadDailyAnalysis(true));
   $('#notifyButton').addEventListener('click', () => { location.hash = '#alertas'; });
 
   pushController = SitePush.create({ firebase, messaging, vapidKey: VAPID_KEY });
@@ -612,7 +643,7 @@ function start(){
     readings = snapshot.docs.map(doc => {
       const data = doc.data();
       return { temp: Number(data.temperatura), hum: Number(data.umidade), date: readingDate(data.timestamp) };
-    }).filter(item => Number.isFinite(item.temp) && Number.isFinite(item.hum));
+    }).filter(item => Number.isFinite(item.temp) && item.temp>=-40 && item.temp<=80 && Number.isFinite(item.hum) && item.hum>=0 && item.hum<=100 && Number.isFinite(item.date.getTime()) && item.date.getTime()<=Date.now()+30000).sort((a,b)=>b.date-a.date);
     latest = readings[0];
     lastReadingAt = latest?.date || null;
     if (latest) {
@@ -628,7 +659,7 @@ start();
  const el=id=>document.getElementById(id), panel=el('guidePanel'), toggle=el('guideToggle'), field=el('guideText'), listen=el('guideListen');
  const normalize=text=>text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
  const dateKey=date=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Fortaleza',year:'numeric',month:'2-digit',day:'2-digit'}).format(date);
- const descriptions={dashboard:'No início você encontra temperatura, umidade e conforto. Os valores são da última medição, cujo horário aparece no painel.',dados:'Em Dados, escolha um dia da semana ou uma data. Você pode buscar um horário e exportar as medições.',alertas:'Alertas mostra o que precisa de atenção. Ativar notificações permite receber avisos neste aparelho. Em Escolher alertas e limites você personaliza esses avisos.',analises:'Análises resume as leituras recentes disponíveis de hoje. As médias podem não representar o dia inteiro.',sobre:'A estação usa um sensor para medir temperatura e umidade. O ESP32 envia as leituras pela internet para o site.'};
+ const descriptions={dashboard:'No início você encontra temperatura, umidade e conforto. Os valores são da última medição, cujo horário aparece no painel.',dados:'Em Dados, escolha um dia da semana ou uma data. Você pode buscar um horário e exportar as medições.',alertas:'Alertas mostra o que precisa de atenção. Ativar notificações permite receber avisos neste aparelho. Em Escolher alertas e limites você personaliza esses avisos.',analises:'Análises consulta todas as medições registradas hoje, no horário da estação. A média é por leitura e não estima os períodos sem dados.',sobre:'A estação usa um sensor para medir temperatura e umidade. O ESP32 envia as leituras pela internet para o site.'};
  let recognition=null, timer, session=0;
  function stopListening(){session++;clearTimeout(timer);const old=recognition;recognition=null;if(old){old.onend=old.onerror=old.onresult=null;try{old.abort();}catch{}}listen.textContent=Recognition?'Falar com Lumi':'Voz indisponível';}
  function answer(text,read=true){el('guideReply').textContent=text;window.speechSynthesis?.cancel();if(read&&el('guideSpeak').checked&&'speechSynthesis' in window){stopListening();const utterance=new SpeechSynthesisUtterance(text);utterance.lang='pt-BR';speechSynthesis.speak(utterance);}}
