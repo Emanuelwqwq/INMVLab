@@ -743,3 +743,28 @@ start();
  });
  window.addEventListener('keydown',event=>{if(event.key==='Escape'&&!panel.hidden)close();});document.addEventListener('visibilitychange',()=>{if(document.hidden){stopListening();window.speechSynthesis?.cancel();}});
 })();
+// Diagnóstico local: consultar não ativa push nem envia notificações.
+(function setupPushDiagnostics(){
+ const panel=document.getElementById('pushDiagnostics'), button=document.getElementById('refreshPushDiagnostics'), report=document.getElementById('pushDiagnosticReport');
+ const stamp=value=>value?new Date(value).toLocaleString('pt-BR'):'não informado';
+ async function inspect(){
+  button.disabled=true;report.textContent='Consultando receptor…';let channel,timer;
+  try{
+   if(!('serviceWorker' in navigator))throw Error('Este navegador não oferece service worker.');
+   const registration=await navigator.serviceWorker.getRegistration(new URL('./',location.href).href);
+   if(!registration?.active)throw Error('Nenhum receptor ativo neste endereço. Recarregue o site.');
+   channel=new MessageChannel();
+   const result=await new Promise((resolve,reject)=>{timer=setTimeout(()=>reject(Error('O receptor não respondeu. Recarregue o site após publicar a atualização e tente novamente.')),6000);channel.port1.onmessage=event=>resolve(event.data);registration.active.postMessage({type:'IMNV_PUSH_DIAGNOSTICS'},[channel.port2]);});
+   const labels={received:'Recebida', 'display-accepted':'Exibição aceita pelo navegador','display-error':'Falha ao exibir',duplicate:'Duplicata ignorada','invalid-payload':'Mensagem inválida'};
+   report.textContent=[`Receptor: ${result.version}`,`Permissão: ${'Notification' in window?Notification.permission:'indisponível'}`,`Inscrição push: ${result.subscribed?'presente':'ausente'}`,`Esta página abriu em: ${stamp(performance.timeOrigin)}`,'Horários no fuso deste aparelho.','',...result.records.slice(0,10).map(record=>[
+    `${labels[record.state]||record.state} · ${record.source==='page-forward'?'encaminhada pela página':'push direto'}`,
+    `Recebimento: ${stamp(record.receivedAt)}`,record.sentAt?`Envio informado: ${stamp(record.sentAt)}`:null,
+    record.displayedAt?`Exibição aceita: ${stamp(record.displayedAt)}`:null,
+    `Páginas abertas: ${record.windows??'?'} · visíveis: ${record.visible??'?'}`,
+    record.error?`Erro: ${record.error}`:null,record.receiptCacheError?'Cache indisponível; exibição tentada mesmo assim.':null
+   ].filter(Boolean).join('\n'))].join('\n\n');
+   if(!result.records.length)report.textContent+='\nNenhum recebimento registrado desde esta atualização.';
+  }catch(error){report.textContent=error.message;}finally{clearTimeout(timer);channel?.port1.close();button.disabled=false;}
+ }
+ button.addEventListener('click',inspect);panel.addEventListener('toggle',()=>{if(panel.open)inspect();});
+})();
