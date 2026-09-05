@@ -1,3 +1,269 @@
+// Consulta diária
+(function(root) {
+  const ZONE = 'America/Fortaleza';
+  const dateFormat = new Intl.DateTimeFormat('en-CA', { timeZone: ZONE, year: 'numeric', month: '2-digit', day: '2-digit' });
+  function dayKey(date = new Date()) {
+    const parts = Object.fromEntries(dateFormat.formatToParts(date).map(part => [part.type, part.value]));
+    return `${parts.year}-${parts.month}-${parts.day}`;
+  }
+  function bounds(key) {
+    const start = new Date(`${key}T00:00:00-03:00`);
+    return { start, end: new Date(start.getTime() + 86400000) };
+  }
+  function shift(key, days) { return dayKey(new Date(bounds(key).start.getTime() + days * 86400000)); }
+  function week(key) {
+    const weekday = new Date(`${key}T12:00:00Z`).getUTCDay();
+    const monday = shift(key, -((weekday + 6) % 7));
+    return Array.from({ length: 7 }, (_, index) => shift(monday, index));
+  }
+  function normalize(doc) {
+    const value = doc.data();
+    const raw = value.timestamp;
+    const date = raw?.toDate ? raw.toDate() : typeof raw === 'number' ? new Date(raw > 1e10 ? raw : raw * 1000) : new Date(raw);
+    if (raw == null || value.temperatura == null || value.umidade == null) return null;
+    const temp = Number(value.temperatura), hum = Number(value.umidade);
+    return Number.isFinite(temp) && Number.isFinite(hum) && Number.isFinite(date.getTime()) ? { id: doc.id, temp, hum, date } : null;
+  }
+  function combine(groups, key) {
+    const entries = new Map();
+    for (const docs of groups) for (const doc of docs) {
+      const item = normalize(doc);
+      if (item && dayKey(item.date) === key) entries.set(item.id, item);
+    }
+    return [...entries.values()].sort((a, b) => b.date - a.date || a.id.localeCompare(b.id));
+  }
+  function create({ db, firebase, comfortScore, fireRisk }) {
+    const el = id => document.getElementById(id);
+    const label = (key, options) => bounds(key).start.toLocaleDateString('pt-BR', { timeZone: ZONE, ...options });
+    const dateTime = date => date.toLocaleString('pt-BR', { timeZone: ZONE, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    let selected = dayKey(), active = false, loading = true, failed = false, cached = false;
+    let records = [], unsubscribers = [], generation = 0, visibleRows = 100;
+    const more = document.createElement('button');
+    more.type = 'button'; more.className = 'outline-button hidden'; more.id = 'historyMore'; more.textContent = 'Carregar mais leituras';
+    el('dataTable').closest('.table-panel').append(more);
+    more.addEventListener('click', () => { visibleRows += 100; render(); });
+    function stop() { generation++; unsubscribers.forEach(unsubscribe => unsubscribe()); unsubscribers = []; }
+    function filtered() {
+      const query = el('searchInput').value.trim().toLowerCase();
+      return records.filter(item => dateTime(item.date).toLowerCase().includes(query));
+    }
+    function renderWeek() {
+      el('historyDate').value = selected;
+      const keys = week(selected);
+      el('weekLabel').textContent = `${label(keys[0], { day: '2-digit', month: 'short' })} — ${label(keys[6], { day: '2-digit', month: 'short', year: 'numeric' })}`;
+      el('weekDays').replaceChildren(...keys.map(key => {
+        const button = document.createElement('button');
+        button.type = 'button'; button.className = 'week-day'; button.setAttribute('aria-pressed', String(key === selected));
+        button.setAttribute('aria-label', label(key, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }));
+        if (key === dayKey()) button.setAttribute('aria-current', 'date');
+        const name = document.createElement('span'), number = document.createElement('strong'), today = document.createElement('small');
+        name.textContent = label(key, { weekday: 'short' }).replace('.', '');
+        number.textContent = label(key, { day: '2-digit' });
+        today.textContent = key === dayKey() ? 'Hoje' : label(key, { month: 'short' });
+        button.append(name, number, today); button.addEventListener('click', () => select(key));
+        return button;
+      }));
+    }
+    function render() {
+      const items = filtered();
+      el('exportButton').disabled = loading || failed || !items.length;
+      el('historyRetry').classList.toggle('hidden', !failed);
+      more.classList.toggle('hidden', loading || failed || items.length <= visibleRows);
+      if (loading || failed) {
+        el('tableSummary').textContent = loading ? 'Buscando leituras do dia…' : 'Consulta indisponível';
+        el('dataTable').innerHTML = `<tr><td colspan="5" class="empty-state">${loading ? 'Carregando o histórico selecionado…' : 'Não foi possível consultar esta data. Tente novamente.'}</td></tr>`;
+        for (const id of ['dayCount', 'dayTemperature', 'dayRange', 'dayHumidity']) el(id).textContent = '—';
+        el('historyStatus').textContent = loading ? 'Consultando o dia no Firebase…' : 'Falha na consulta. Verifique a conexão e a permissão de leitura do histórico.';
+        return;
+      }
+      el('dayCount').textContent = records.length;
+      const total = records.reduce((sum, item) => ({ temp: sum.temp + item.temp, hum: sum.hum + item.hum, min: Math.min(sum.min, item.temp), max: Math.max(sum.max, item.temp) }), { temp: 0, hum: 0, min: Infinity, max: -Infinity });
+      const decimal = value => value.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+      el('dayTemperature').textContent = records.length ? `${decimal(total.temp / records.length)} °C` : '—';
+      el('dayHumidity').textContent = records.length ? `${decimal(total.hum / records.length)} %` : '—';
+      el('dayRange').textContent = records.length ? `${decimal(total.min)}° / ${decimal(total.max)}°` : '—';
+      el('historyStatus').textContent = cached ? 'Dados em cache: podem estar incompletos. Aguardando confirmação do Firebase.' : `${label(selected, { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })} · ${records.length ? 'Histórico do dia atualizado.' : 'Nenhuma leitura registrada neste dia.'}`;
+      el('tableSummary').textContent = `${items.length} ${items.length === 1 ? 'leitura disponível' : 'leituras disponíveis'}${items.length > visibleRows ? ` · exibindo ${visibleRows}` : ''}`;
+      el('dataTable').innerHTML = items.slice(0, visibleRows).map(item => {
+        const risk = fireRisk(item.temp, item.hum);
+        return `<tr><td>${dateTime(item.date)}</td><td><strong>${decimal(item.temp)}°C</strong></td><td>${decimal(item.hum)}%</td><td>${comfortScore(item.temp, item.hum)}/100</td><td><span class="table-risk ${risk.className}">${risk.label}</span></td></tr>`;
+      }).join('') || `<tr><td colspan="5" class="empty-state">${records.length ? 'Nenhuma leitura corresponde à busca neste dia.' : cached ? 'Aguardando conexão para confirmar os registros deste dia.' : 'Nenhuma leitura registrada neste dia. Escolha outra data.'}</td></tr>`;
+    }
+    function subscribe() {
+      stop();
+      const current = generation;
+      loading = true; failed = false; records = []; visibleRows = 100; render();
+      const { start, end } = bounds(selected);
+      // Existing firmware may write Firestore Timestamp, Unix seconds/milliseconds or ISO strings.
+      // Query each type independently; no 100-record dashboard limit applies here.
+      const ranges = [
+        [firebase.firestore.Timestamp.fromDate(start), firebase.firestore.Timestamp.fromDate(end)],
+        [start.getTime(), end.getTime()], [start.getTime() / 1000, end.getTime() / 1000],
+        [shift(selected, -1), shift(selected, 2)]
+      ];
+      const groups = new Array(ranges.length), sources = new Array(ranges.length);
+      ranges.forEach(([from, to], index) => {
+        const unsubscribe = db.collection('leituras').where('timestamp', '>=', from).where('timestamp', '<', to).orderBy('timestamp', 'desc').onSnapshot({ includeMetadataChanges: true }, snapshot => {
+          if (generation !== current || failed) return;
+          groups[index] = snapshot.docs; sources[index] = snapshot.metadata.fromCache;
+          if (groups.filter(Boolean).length !== ranges.length) return;
+          records = combine(groups, selected); cached = sources.some(Boolean); loading = false; render();
+        }, () => {
+          if (generation !== current) return;
+          loading = false; failed = true; records = []; render(); stop();
+        });
+        unsubscribers.push(unsubscribe);
+      });
+    }
+    function select(key) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(key) || !Number.isFinite(bounds(key).start.getTime())) return;
+      selected = key; el('searchInput').value = ''; renderWeek();
+      if (active) subscribe();
+    }
+    el('historyDate').addEventListener('change', event => select(event.target.value));
+    el('previousWeek').addEventListener('click', () => select(shift(selected, -7)));
+    el('nextWeek').addEventListener('click', () => select(shift(selected, 7)));
+    el('historyToday').addEventListener('click', () => select(dayKey()));
+    el('historyRetry').addEventListener('click', subscribe);
+    renderWeek();
+    return {
+      render,
+      setActive(value) { if (value === active) return; active = value; if (active) subscribe(); else stop(); },
+      exportCsv() {
+        const items = filtered();
+        if (loading || failed || !items.length) return;
+        const rows = [['data_hora_UTC-3', 'temperatura_c', 'umidade_percentual', 'conforto', 'risco'], ...items.map(item => [dateTime(item.date), item.temp.toFixed(1), item.hum.toFixed(1), comfortScore(item.temp, item.hum), fireRisk(item.temp, item.hum).label])];
+        const blob = new Blob(['\uFEFF' + rows.map(row => row.join(';')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
+        const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `leituras-${selected}.csv`; link.click();
+        setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+      }
+    };
+  }
+  const api = { dayKey, bounds, shift, week, combine, create };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else root.StationHistory = api;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+
+// Notificações push
+const SitePush = (() => {
+  const defaults = { minTemp: 18, maxTemp: 30, minHum: 30, maxHum: 70, heat: true, cold: true, humidity: true, recovery: true, offline: true };
+  function create({ firebase, messaging, vapidKey }) {
+    const el = id => document.getElementById(id);
+    const auth = firebase.auth(), functions = firebase.app().functions('southamerica-east1');
+    let settings = { ...defaults }, registered = false, available = false, busy = false, refreshTimer;
+    try { settings = { ...defaults, ...JSON.parse(localStorage.getItem('imnvlab-push-settings') || '{}') }; } catch {}
+    let optedIn = localStorage.getItem('imnvlab-push-enabled') === 'true';
+    const supported = !!messaging && window.isSecureContext && 'Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window;
+    const call = async (name, data) => (await functions.httpsCallable(name, { timeout: 15000 })(data)).data;
+    const feedback = text => { el('pushFeedback').textContent = text; };
+    function render() {
+      const permission = 'Notification' in window ? Notification.permission : 'unsupported';
+      el('pushStatus').textContent = !supported ? 'Não disponível neste navegador' : registered ? '● Ativo neste dispositivo' : permission === 'denied' ? 'Permissão bloqueada' : '○ Desativado neste dispositivo';
+      el('pushServiceStatus').textContent = available ? 'Serviço automático disponível' : 'Serviço automático ainda indisponível';
+      el('pushEnable').disabled = busy || !supported || registered;
+      el('pushDisable').disabled = busy || !optedIn;
+      el('pushTest').disabled = busy || !registered;
+      el('pushSave').disabled = busy;
+      el('notifyButton').textContent = registered ? '◉ Push ativo' : '◉ Ativar notificações';
+      el('notifyButton').disabled = busy;
+    }
+    async function registration() {
+      await navigator.serviceWorker.register('./service-worker.js');
+      return Promise.race([navigator.serviceWorker.ready, new Promise((_, reject) => { const timer = setTimeout(() => reject(new Error('service-worker-timeout')), 15000); navigator.serviceWorker.ready.then(() => clearTimeout(timer)); })]);
+    }
+    async function subscribe() {
+      await call('pushStatus'); available = true;
+      if (!auth.currentUser) await auth.signInAnonymously();
+      const worker = await registration();
+      const token = await messaging.getToken({ vapidKey, serviceWorkerRegistration: worker });
+      if (!token) throw new Error('missing-token');
+      await call('registerPush', { token, settings });
+      registered = true; optedIn = true;
+      localStorage.setItem('imnvlab-push-enabled', 'true');
+      localStorage.setItem('imnvlab-push-settings', JSON.stringify(settings));
+    }
+    function errorText(error) {
+      if (error.code?.startsWith('auth/')) return 'O Firebase Authentication precisa permitir acesso anônimo para cadastrar este dispositivo. Nenhum login pessoal é necessário.';
+      if (error.code === 'functions/invalid-argument') return 'Confira os limites: a mínima precisa ser menor que a máxima, e a umidade deve ficar entre 0 e 100%.';
+      if (error.code === 'functions/resource-exhausted') return 'Aguarde um minuto antes de testar novamente.';
+      if (error.code?.startsWith('messaging/')) return 'Não foi possível cadastrar o push. Confira a chave Web Push do Firebase e as permissões deste navegador.';
+      return 'Não foi possível concluir. Verifique a conexão e se o serviço de push foi publicado no Firebase. Nenhuma ativação foi confirmada.';
+    }
+    async function enable() {
+      location.hash = '#alertas';
+      if (!supported) { feedback('Use um navegador compatível e um endereço HTTPS. No iPhone/iPad, adicione o site à Tela de Início e abra por esse ícone.'); return; }
+      if (Notification.permission === 'denied') { feedback('Libere as notificações nas configurações deste site no navegador e tente novamente.'); return; }
+      if (registered) { feedback('As notificações já estão ativas neste dispositivo. Você pode enviar um teste abaixo.'); return; }
+      busy = true; render();
+      try {
+        // The permission request stays directly inside the user's click gesture.
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') { feedback('Permissão não concedida. Você pode ativar quando quiser.'); return; }
+        await subscribe(); feedback('Push ativado neste dispositivo. Use “Testar notificação” para conferir a entrega.');
+      } catch (error) { registered = false; feedback(errorText(error)); }
+      finally { busy = false; render(); }
+    }
+    async function disable() {
+      busy = true; render();
+      try {
+        if (auth.currentUser) await call('disablePush');
+        await messaging.deleteToken();
+        registered = false; optedIn = false; localStorage.setItem('imnvlab-push-enabled', 'false');
+        feedback('Push desativado neste dispositivo. Você pode reativar depois.');
+      } catch { feedback('Não foi possível concluir a desativação. Verifique a conexão e tente novamente.'); }
+      finally { busy = false; render(); }
+    }
+    for (const key of Object.keys(defaults)) {
+      const input = el('push-' + key);
+      if (typeof defaults[key] === 'boolean') input.checked = settings[key]; else input.value = settings[key];
+    }
+    el('pushForm').addEventListener('submit', async event => {
+      event.preventDefault();
+      const next = Object.fromEntries(Object.keys(defaults).map(key => [key, typeof defaults[key] === 'boolean' ? el('push-' + key).checked : Number(el('push-' + key).value)]));
+      if (next.minTemp >= next.maxTemp || next.minHum >= next.maxHum) { feedback('A mínima precisa ser menor que a máxima.'); return; }
+      const previous = settings; settings = next; busy = true; render();
+      try {
+        if (registered) await subscribe();
+        localStorage.setItem('imnvlab-push-settings', JSON.stringify(settings));
+        feedback(registered ? 'Preferências salvas no serviço automático.' : 'Preferências salvas neste navegador. Ative o push para receber os alertas.');
+      } catch (error) { settings = previous; feedback(errorText(error)); }
+      finally { busy = false; render(); }
+    });
+    el('pushEnable').addEventListener('click', enable);
+    el('pushDisable').addEventListener('click', disable);
+    el('pushTest').addEventListener('click', async () => {
+      busy = true; render();
+      try { await call('testPush'); feedback('Teste aceito pelo Firebase. Confira a notificação neste dispositivo.'); }
+      catch (error) { feedback(errorText(error)); }
+      finally { busy = false; render(); }
+    });
+    // Only the service worker displays messages, including those received with a tab in front.
+    // This avoids the old duplicate local alerts and supports mobile browsers.
+    if (messaging) messaging.onMessage(async payload => {
+      if (!optedIn || Notification.permission !== 'granted') return;
+      try { const worker = await registration(); worker.active?.postMessage({ type: 'IMNV_PUSH', payload }); } catch {}
+    });
+    async function restore() {
+      if (!supported || busy) return;
+      busy = true; render();
+      try {
+        await call('pushStatus'); available = true;
+        if (optedIn && Notification.permission === 'granted') { await subscribe(); feedback('Push ativo. As preferências são específicas deste dispositivo.'); }
+        else if (optedIn && auth.currentUser) { await call('disablePush'); registered = false; optedIn = false; localStorage.setItem('imnvlab-push-enabled', 'false'); }
+      } catch { available = false; registered = false; feedback('Para receber alertas com o site fechado, conclua a publicação do serviço no Firebase.'); }
+      finally { busy = false; render(); }
+    }
+    auth.onAuthStateChanged(() => { clearTimeout(refreshTimer); refreshTimer = setTimeout(restore, 0); });
+    window.addEventListener('online', restore);
+    render();
+    return { enable };
+  }
+  return { create };
+})();
+
+
+// Painel da estação
 const firebaseConfig = { apiKey: "AIzaSyBWDcTMNN4aUYywXhgUw_gJzlkB45F1foM", authDomain: "climat-7c7f7.firebaseapp.com", projectId: "climat-7c7f7", storageBucket: "climat-7c7f7.firebasestorage.app", messagingSenderId: "267164246485", appId: "1:267164246485:web:a72b776b880ba5b8b71d5c" };
 
 /* ⚠️ SUBSTITUA pela sua chave VAPID (Firebase Console → Project settings → Cloud Messaging → Web Push certificates) */
@@ -52,9 +318,6 @@ function updateSensorStatus(){
     $('#alertBadge').textContent = '1';
     $('#alertCount').textContent = '1';
     $('#alertList').innerHTML = '<div class="alert-item"><span class="alert-symbol">!</span><div><strong>Arduino offline</strong><small>Nenhuma leitura nova há mais de 2 minutos.</small></div><span class="alert-time">agora</span></div>';
-    if (!sensorOfflineNotified && 'Notification' in window && Notification.permission === 'granted') {
-      new Notification('IMNVLab · Arduino offline', { body: 'O Arduino de Canto do Buriti não envia uma leitura nova há mais de 2 minutos.' });
-    }
     sensorOfflineNotified = true;
     return false;
   }
@@ -233,9 +496,6 @@ function updateAlerts(){
   if (latest.hum < thresholds.minHum) alerts.push(['◌', 'Umidade abaixo do limite', `Abaixo de ${thresholds.minHum}%`]);
   if (latest.temp < 18) alerts.push(['❄', 'Temperatura baixa', 'Ambiente abaixo de 18°C']);
   const signature = alerts.map(alert => alert[1]).join('|');
-  if (signature && signature !== lastAlertSignature && 'Notification' in window && Notification.permission === 'granted') {
-    new Notification('Alerta climático · Canto do Buriti', { body: alerts.map(alert => alert[1]).join(' e ') });
-  }
   lastAlertSignature = signature;
   $('#alertCount').textContent = alerts.length;
   $('#alertBadge').textContent = alerts.length;
@@ -273,33 +533,9 @@ function updateStats(){
     : 'As condições permitem seguir com as atividades habituais, mantendo o acompanhamento.';
 }
 
-function updateTable(){
-  const query = ($('#searchInput')?.value || '').toLowerCase();
-  const filtered = readings.filter(item => formatDate(item.date).toLowerCase().includes(query));
-  $('#tableSummary').textContent = `${filtered.length} ${filtered.length === 1 ? 'leitura disponível' : 'leituras disponíveis'}`;
-  $('#dataTable').innerHTML = filtered.map(item => {
-    const comfort = comfortScore(item.temp, item.hum);
-    const risk = fireRisk(item.temp, item.hum);
-    return `<tr><td>${formatDate(item.date)}</td><td><strong>${item.temp.toFixed(1)}°C</strong></td><td>${Math.round(item.hum)}%</td><td>${comfort}/100</td><td><span class="table-risk ${risk.className}">${risk.label}</span></td></tr>`;
-  }).join('') || '<tr><td colspan="5" class="empty-state">Nenhuma leitura encontrada.</td></tr>';
-}
-
-function exportCsv(){
-  const rows = [['data_hora','temperatura_c','umidade_percentual','conforto','risco']];
-  readings.forEach(item => rows.push([
-    formatDate(item.date),
-    item.temp.toFixed(1),
-    item.hum.toFixed(1),
-    comfortScore(item.temp, item.hum),
-    fireRisk(item.temp, item.hum).label
-  ]));
-  const blob = new Blob([rows.map(row => row.join(';')).join('\n')], { type: 'text/csv;charset=utf-8' });
-  const link = document.createElement('a');
-  link.href = URL.createObjectURL(blob);
-  link.download = 'leituras-canto-do-buriti.csv';
-  link.click();
-  URL.revokeObjectURL(link.href);
-}
+let dayHistory;
+function updateTable(){ dayHistory?.render(); }
+function exportCsv(){ dayHistory?.exportCsv(); }
 
 function navigate(){
   const view = (location.hash || '#dashboard').slice(1);
@@ -309,96 +545,12 @@ function navigate(){
   $$('nav a[data-page]').forEach(link => link.classList.toggle('active', link.dataset.page === active));
   $('.sidebar').classList.remove('mobile-open');
   $('#mobileMenu').setAttribute('aria-expanded', 'false');
+  dayHistory?.setActive(active === 'dados');
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-async function saveFcmToken(token) {
-  if (!token) return;
-  const deviceId = localStorage.getItem('imnvlab-device-id') || (() => {
-    const id = 'dev_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
-    localStorage.setItem('imnvlab-device-id', id);
-    return id;
-  })();
-  try {
-    await db.collection('fcmTokens').doc(deviceId).set({
-      token,
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      userAgent: navigator.userAgent,
-      platform: navigator.platform || 'unknown',
-      lang: navigator.language || 'pt-BR'
-    }, { merge: true });
-    localStorage.setItem('imnvlab-fcm-token', token);
-  } catch (err) {
-    console.error('Erro ao salvar token FCM:', err);
-  }
-}
-
-async function enableNotifications() {
-  if (!('Notification' in window)) {
-    alert('Este navegador não suporta notificações.');
-    return;
-  }
-  if (!messaging) {
-    alert('Firebase Messaging não está disponível neste navegador.');
-    return;
-  }
-  if (VAPID_KEY === 'SUBSTITUA_PELA_SUA_CHAVE_VAPID_AQUI') {
-    console.warn('Configure a VAPID_KEY em dashboard.js (Firebase Console → Cloud Messaging → Web Push certificates).');
-  }
-
-  try {
-    const permission = await Notification.requestPermission();
-    if (permission !== 'granted') {
-      $('#notifyButton').textContent = '◉ Notificações bloqueadas';
-      return;
-    }
-
-    const registration = await navigator.serviceWorker.ready;
-    const token = await messaging.getToken({
-      vapidKey: VAPID_KEY,
-      serviceWorkerRegistration: registration
-    });
-
-    if (token) {
-      await saveFcmToken(token);
-      $('#notifyButton').textContent = '◉ Notificações ativas';
-      console.log('FCM token registrado:', token.slice(0, 20) + '...');
-    } else {
-      $('#notifyButton').textContent = '◉ Token não gerado';
-    }
-
-    messaging.onMessage(payload => {
-      const title = payload.notification?.title || payload.data?.title || 'IMNVLab · Alerta';
-      const body = payload.notification?.body || payload.data?.body || 'Nova condição ambiental.';
-      if (Notification.permission === 'granted') {
-        new Notification(title, {
-          body,
-          icon: payload.notification?.icon || './icon-192.png',
-          tag: payload.data?.tag || 'imnvlab-fg'
-        });
-      }
-    });
-  } catch (err) {
-    console.error('Erro ao ativar notificações FCM:', err);
-    $('#notifyButton').textContent = '◉ Erro ao ativar';
-  }
-}
-
-async function tryRestoreFcmToken() {
-  if (!messaging || !('Notification' in window) || Notification.permission !== 'granted') return;
-  if (VAPID_KEY === 'SUBSTITUA_PELA_SUA_CHAVE_VAPID_AQUI') return;
-  try {
-    const registration = await navigator.serviceWorker.ready;
-    const token = await messaging.getToken({
-      vapidKey: VAPID_KEY,
-      serviceWorkerRegistration: registration
-    });
-    if (token) {
-      await saveFcmToken(token);
-      $('#notifyButton').textContent = '◉ Notificações ativas';
-    }
-  } catch (e) { /* silencioso */ }
-}
+let pushController;
+function enableNotifications(){ return pushController.enable(); }
 
 function showOffline(){
   $('#statusText').textContent = 'Estação offline';
@@ -410,9 +562,6 @@ function showOffline(){
   $('#alertBadge').textContent = '1';
   $('#alertCount').textContent = '1';
   $('#alertList').innerHTML = '<div class="alert-item"><span class="alert-symbol">!</span><div><strong>Estação offline</strong><small>Não foi possível receber dados do Firestore.</small></div><span class="alert-time">agora</span></div>';
-  if (!offlineNotified && 'Notification' in window && Notification.permission === 'granted') {
-    new Notification('IMNVLab · estação offline', { body: 'A estação de Canto do Buriti não está enviando dados.' });
-  }
   offlineNotified = true;
 }
 
@@ -423,6 +572,7 @@ function showConnecting(){
 }
 
 function start(){
+  dayHistory = StationHistory.create({ db, firebase, comfortScore, fireRisk });
   setupCharts();
   setupRegionalMap();
   setupThresholds();
@@ -444,7 +594,7 @@ function start(){
   $('#runAnalysisButton').addEventListener('click', updateStats);
   $('#notifyButton').addEventListener('click', enableNotifications);
 
-  tryRestoreFcmToken();
+  pushController = SitePush.create({ firebase, messaging, vapidKey: VAPID_KEY });
 
   db.collection('leituras').orderBy('timestamp', 'desc').limit(100).onSnapshot(snapshot => {
     offlineNotified = false;
