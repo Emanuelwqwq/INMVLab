@@ -649,18 +649,59 @@ function start(){
 }
 
 start();
-// Lumi: comandos locais, sem chave de IA ou envio automático do microfone.
+// Lumi: navegação e respostas locais baseadas nas leituras da estação.
 (function setupGuide(){
- const panel=document.getElementById('guidePanel'), toggle=document.getElementById('guideToggle'), reply=document.getElementById('guideReply'), field=document.getElementById('guideText'), speak=document.getElementById('guideSpeak');
- let recognition;
- function answer(text){reply.textContent=text;if(speak.checked && 'speechSynthesis' in window){speechSynthesis.cancel();const voice=new SpeechSynthesisUtterance(text);voice.lang='pt-BR';speechSynthesis.speak(voice);}}
- function close(){panel.hidden=true;toggle.setAttribute('aria-expanded','false');recognition?.abort();window.speechSynthesis?.cancel();toggle.focus();}
- toggle.addEventListener('click',()=>{if(!panel.hidden)return close();panel.hidden=false;toggle.setAttribute('aria-expanded','true');field.focus();});document.getElementById('guideClose').addEventListener('click',close);
- const descriptions={dashboard:'No início você encontra temperatura, umidade e conforto. Toque em Dados para consultar um dia ou em Alertas para ver o que precisa de atenção.',dados:'Escolha um dia da semana ou uma data. A tabela mostra as medições desse dia. Você também pode buscar um horário e exportar os dados.',alertas:'Veja os alertas atuais. Para receber avisos neste aparelho, toque em Ativar notificações. Em Escolher alertas e limites você personaliza os avisos.',analises:'Esta página resume as leituras recentes de hoje, com médias e variação da temperatura.',sobre:'Aqui você conhece a estação e como o sensor envia as medições para o site.'};
- function command(raw){const text=raw.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');let page;if(/explic|ajud|esta tela/.test(text)){answer(descriptions[location.hash.slice(1)]||descriptions.dashboard);return;}if(/ontem|hoje|dados|historico/.test(text))page='dados';else if(/alert|notifica/.test(text))page='alertas';else if(/analis/.test(text))page='analises';else if(/sobre|como funciona/.test(text))page='sobre';else if(/inicio|dashboard|principal/.test(text))page='dashboard';if(!page){answer('Posso abrir Início, Dados, Alertas, Análises ou Sobre. Experimente “dados de ontem” ou “explicar esta tela”.');return;}location.hash='#'+page;navigate();if(page==='dados'&&/ontem|hoje/.test(text)){const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Fortaleza',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());const p=Object.fromEntries(parts.map(v=>[v.type,v.value]));const day=new Date(`${p.year}-${p.month}-${p.day}T12:00:00-03:00`);if(text.includes('ontem'))day.setUTCDate(day.getUTCDate()-1);const date=document.getElementById('historyDate');date.value=day.toISOString().slice(0,10);date.dispatchEvent(new Event('change',{bubbles:true}));}answer('Pronto. '+descriptions[page]);}
- document.getElementById('guideForm').addEventListener('submit',e=>{e.preventDefault();command(field.value);});document.querySelectorAll('[data-guide]').forEach(button=>button.addEventListener('click',()=>command(button.dataset.guide)));
- const listen=document.getElementById('guideListen'), Recognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+ const el=id=>document.getElementById(id), panel=el('guidePanel'), toggle=el('guideToggle'), field=el('guideText'), listen=el('guideListen');
+ const normalize=text=>text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
+ const dateKey=date=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Fortaleza',year:'numeric',month:'2-digit',day:'2-digit'}).format(date);
+ const descriptions={dashboard:'No início você encontra temperatura, umidade e conforto. Os valores são da última medição, cujo horário aparece no painel.',dados:'Em Dados, escolha um dia da semana ou uma data. Você pode buscar um horário e exportar as medições.',alertas:'Alertas mostra o que precisa de atenção. Ativar notificações permite receber avisos neste aparelho. Em Escolher alertas e limites você personaliza esses avisos.',analises:'Análises resume as leituras recentes disponíveis de hoje. As médias podem não representar o dia inteiro.',sobre:'A estação usa um sensor para medir temperatura e umidade. O ESP32 envia as leituras pela internet para o site.'};
+ let recognition=null, timer, session=0;
+ function stopListening(){session++;clearTimeout(timer);const old=recognition;recognition=null;if(old){old.onend=old.onerror=old.onresult=null;try{old.abort();}catch{}}listen.textContent=Recognition?'Falar com Lumi':'Voz indisponível';}
+ function answer(text,read=true){el('guideReply').textContent=text;window.speechSynthesis?.cancel();if(read&&el('guideSpeak').checked&&'speechSynthesis' in window){stopListening();const utterance=new SpeechSynthesisUtterance(text);utterance.lang='pt-BR';speechSynthesis.speak(utterance);}}
+ function close(){stopListening();window.speechSynthesis?.cancel();panel.hidden=true;toggle.setAttribute('aria-expanded','false');toggle.focus();}
+ const Recognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+ function measurement(text){
+  if(/amanha|previsao/.test(text)){answer('A estação mede o ambiente; não tenho previsão do tempo para amanhã. Posso informar a última leitura de hoje.');return;}
+  if(/ontem|semana|\d{1,2}[/-]\d/.test(text)){answer('Para outra data, consulte Dados. Posso abrir “dados de ontem”. Aqui respondo sobre as leituras recentes de hoje.');return;}
+  const today=readings.filter(r=>Number.isFinite(r.date?.getTime())&&dateKey(r.date)===dateKey(new Date())&&r.date.getTime()<=Date.now()+30000).sort((a,b)=>b.date-a.date);
+  if(!today.length){answer('Ainda não tenho medições de hoje disponíveis. Não vou usar uma leitura antiga como se fosse atual. Consulte Dados ou aguarde a estação.');return;}
+  const current=today[0], time=current.date.toLocaleTimeString('pt-BR',{timeZone:'America/Fortaleza',hour:'2-digit',minute:'2-digit'}), fmt=n=>n.toLocaleString('pt-BR',{maximumFractionDigits:1});
+  const temperature=/temperatura|graus|calor|frio/.test(text), humidity=/umidade/.test(text), comfort=/confort/.test(text);
+  let result;
+  if(/media|maxima|minima|maior|menor/.test(text)){
+   if(comfort){answer('Posso informar o conforto da última leitura. Para médias, pergunte sobre temperatura ou umidade.');return;}
+   const summarize=(key,label,unit)=>{const values=today.map(r=>r[key]);const value=/maxima|maior/.test(text)?Math.max(...values):/minima|menor/.test(text)?Math.min(...values):values.reduce((a,b)=>a+b,0)/values.length;return `${label}: ${fmt(value)} ${unit}`;};
+   result=[temperature?summarize('temp','Temperatura','°C'):null,humidity?summarize('hum','Umidade','%'):null].filter(Boolean).join('. ')+`. Cálculo sobre ${today.length} leituras recentes de hoje carregadas no painel, não necessariamente o dia inteiro.`;
+  }else result=`Na última leitura de hoje, às ${time} (horário da estação): `+[temperature?`temperatura de ${fmt(current.temp)} °C`:null,humidity?`umidade de ${fmt(current.hum)}%`:null,comfort?`conforto de ${comfortScore(current.temp,current.hum)}/100`:null].filter(Boolean).join('; ')+'.';
+  if(Date.now()-current.date.getTime()>SENSOR_TIMEOUT_MS)result+=' A estação está sem leitura recente; esses valores não confirmam as condições de agora.';
+  answer(result);
+ }
+ function command(raw){
+  stopListening();const text=normalize(raw);
+  if(!text){answer('Digite uma pergunta ou toque em Falar com Lumi.');return;}
+  if(/\b(nao|cancele|cancelar|pare|parar)\b/.test(text)){answer('Tudo bem. Não vou navegar.');return;}
+  const pages=[[/\b(inicio|dashboard|principal)\b/,'dashboard'],[/\b(dados|historico)\b/,'dados'],[/alert|notifica/,'alertas'],[/analis/,'analises'],[/\bsobre\b|como funciona a estacao/,'sobre']].filter(([pattern])=>pattern.test(text)).map(([,page])=>page);
+  const explain=/explic|como funciona|o que (e|sao)|ajud/.test(text), navigation=/\b(abrir|abra|abre|ir|va|ver|mostrar|mostre|consultar|leve)\b/.test(text);
+  if(pages.length>1){answer('Você quer Início, Dados, Alertas, Análises ou Sobre? Escolha uma página por vez.');return;}
+  if(explain){answer(descriptions[pages[0]||location.hash.slice(1)]||descriptions.dashboard);return;}
+  if(/temperatura|graus|umidade|conforto|calor|frio/.test(text)&&!navigation){measurement(text);return;}
+  const page=pages[0];
+  if(!page||(!navigation&&!/^(inicio|dashboard|dados( de (ontem|hoje))?|historico|alertas|analises|sobre)[.!?]*$/.test(text))){answer('Você quer abrir uma página ou fazer uma pergunta? Experimente “abrir alertas”, “explique os alertas” ou “qual a temperatura de hoje?”.');return;}
+  location.hash='#'+page;navigate();
+  if(page==='dados'&&/ontem|hoje/.test(text)){const day=new Date(dateKey(new Date())+'T12:00:00-03:00');if(text.includes('ontem'))day.setUTCDate(day.getUTCDate()-1);el('historyDate').value=dateKey(day);el('historyDate').dispatchEvent(new Event('change',{bubbles:true}));}
+  answer('Pronto. '+descriptions[page]);
+ }
+ toggle.addEventListener('click',()=>{if(!panel.hidden)return close();panel.hidden=false;toggle.setAttribute('aria-expanded','true');field.focus();});el('guideClose').addEventListener('click',close);
+ el('guideForm').addEventListener('submit',event=>{event.preventDefault();command(field.value);});document.querySelectorAll('[data-guide]').forEach(button=>button.addEventListener('click',()=>command(button.dataset.guide)));
+ el('guideSpeak').addEventListener('change',()=>{if(!el('guideSpeak').checked)window.speechSynthesis?.cancel();});
  if(!Recognition){listen.disabled=true;listen.textContent='Voz indisponível';}
- else{recognition=new Recognition();recognition.lang='pt-BR';recognition.continuous=false;recognition.interimResults=false;recognition.onresult=e=>{field.value=e.results[0][0].transcript;command(field.value);};recognition.onerror=()=>answer('Não consegui ouvir. Confira a permissão do microfone ou digite seu pedido.');recognition.onend=()=>{listen.disabled=false;listen.textContent='Falar com Lumi';};listen.addEventListener('click',()=>{window.speechSynthesis?.cancel();try{recognition.start();listen.disabled=true;listen.textContent='Ouvindo…';}catch{answer('Tente novamente ou digite seu pedido.');}});}
- window.addEventListener('keydown',e=>{if(e.key==='Escape'&&!panel.hidden)close();});
+ else listen.addEventListener('click',()=>{
+  if(recognition){stopListening();answer('Escuta cancelada.',false);return;}
+  window.speechSynthesis?.cancel();const id=++session;recognition=new Recognition();recognition.lang='pt-BR';recognition.continuous=false;recognition.interimResults=false;
+  recognition.onresult=event=>{if(id!==session)return;const transcript=event.results[0][0].transcript;stopListening();field.value=transcript;answer('Ouvi: “'+transcript+'”. Corrija se precisar e toque em Enviar para confirmar.',false);field.focus();};
+  recognition.onerror=event=>{if(id!==session)return;stopListening();answer(event.error==='not-allowed'?'O microfone foi bloqueado. Permita o acesso nas configurações do navegador ou digite sua pergunta.':'Não consegui reconhecer sua fala. Tente novamente ou digite a pergunta.',false);};
+  recognition.onend=()=>{if(id!==session)return;stopListening();answer('Não recebi uma frase. Toque para tentar novamente ou digite.',false);};
+  try{recognition.start();listen.textContent='Cancelar escuta';answer('Estou ouvindo. Você terá a chance de revisar a frase.',false);timer=setTimeout(()=>{if(id!==session)return;stopListening();answer('A escuta terminou após 12 segundos. Tente novamente ou digite.',false);},12000);}catch{stopListening();answer('Não foi possível iniciar o microfone. Digite sua pergunta ou tente novamente.',false);}
+ });
+ window.addEventListener('keydown',event=>{if(event.key==='Escape'&&!panel.hidden)close();});document.addEventListener('visibilitychange',()=>{if(document.hidden){stopListening();window.speechSynthesis?.cancel();}});
 })();
