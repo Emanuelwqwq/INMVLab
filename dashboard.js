@@ -650,17 +650,49 @@ start();
   if(Date.now()-current.date.getTime()>SENSOR_TIMEOUT_MS)result+=' A estação está sem leitura recente; esses valores não confirmam as condições de agora.';
   answer(result);
  }
+ function siteAnswer(text){
+  const say=value=>{answer(value);return true;};
+  if(/\b(imnvlab|inmvlab|inmvlab|imnv lab|inmv lab)\b/.test(text)&&/o\s*que|oque|quem|significa|projeto/.test(text))return say('IMNVLab significa Instituto Meteorológico Nonato Valente. É o site de monitoramento ambiental da estação de Canto do Buriti, no Piauí. Ele apresenta temperatura e umidade, histórico por dia, indicadores de conforto, estimativa de risco de incêndio e alertas. A marca exibida é do CETI Nonato Valente.');
+  if(/\bceti\b/.test(text))return say('CETI significa Centro Estadual de Tempo Integral. A imagem do site é a marca do CETI Nonato Valente. O nome do painel continua sendo IMNVLab.');
+  if(/incend|queimada|recomenda|sugest|cuidados|dicas|devo fazer/.test(text)){
+   if(/amanha|previsao/.test(text))return say('Não tenho previsão meteorológica. O site calcula indicadores a partir das medições da estação.');
+   if(/ontem|semana passada/.test(text))return say('Para verificar outro dia, consulte o histórico em Dados. Aqui uso a última medição disponível, sem atribuí-la a uma data diferente.');
+   if(/incend|queimada/.test(text)&&/calcul|criter|significa|como funciona/.test(text))return say('O risco é uma estimativa simples do painel: alto quando a temperatura supera 32 °C e a umidade está abaixo de 30%; moderado quando a temperatura supera 29 °C ou a umidade fica abaixo de 40%; baixo nos demais casos. Não é um alerta oficial nem detecta fogo. Não considera vento, vegetação ou chuva.');
+   if(!latest||!Number.isFinite(latest.temp)||!Number.isFinite(latest.hum)||!Number.isFinite(latest.date?.getTime())||latest.date.getTime()>Date.now()+30000)return say('Ainda não há uma medição válida para avaliar essas condições. Aguarde a estação ou consulte Dados.');
+   const stamp=latest.date.toLocaleString('pt-BR',{timeZone:'America/Fortaleza'}),stale=Date.now()-latest.date.getTime()>SENSOR_TIMEOUT_MS;
+   if(/incend|queimada/.test(text))return say('O risco estimado pelo painel é '+fireRisk(latest.temp,latest.hum).label+', com '+latest.temp.toLocaleString('pt-BR')+' °C e '+latest.hum.toLocaleString('pt-BR')+'% de umidade. Leitura de '+stamp+'. '+(stale?'A leitura está desatualizada e não confirma o risco agora. ':'')+'É um indicador simplificado de temperatura e umidade, não um alerta oficial ou detector de incêndio.');
+   if(stale)return say('A estação está sem leitura recente. Minha recomendação é verificar a conexão e a alimentação da estação antes de usar os valores para avaliar o ambiente. Última medição: '+stamp+'.');
+   const tips=[];
+   if(latest.temp>thresholds.maxTemp)tips.push('A temperatura está acima do limite que você configurou. Acompanhe sua evolução em Dados.');
+   if(latest.temp<(thresholds.minTemp??18))tips.push('A temperatura está abaixo do seu limite mínimo. Acompanhe as próximas medições.');
+   if(latest.hum<thresholds.minHum||latest.hum>thresholds.maxHum)tips.push('A umidade está fora da faixa configurada. Confira a tendência no histórico.');
+   if(!tips.length)tips.push('A temperatura e a umidade estão dentro dos seus limites configurados. Continue acompanhando as medições.');
+   return say(tips.join(' ')+' Você pode ativar notificações em Alertas para acompanhar mudanças. Base: leitura de '+stamp+'.');
+  }
+  if(/confort/.test(text)&&/significa|calcul|o\s*que|oque/.test(text))return say('Conforto é uma pontuação estimada de 0 a 100 usando temperatura e umidade. Quanto maior, mais próximas das faixas de referência do painel estão as condições. Não é uma medição direta de sensação térmica nem uma avaliação individual de saúde.');
+  if(/umidade/.test(text)&&/significa|o\s*que|oque/.test(text))return say('Umidade relativa indica, em porcentagem, quanto vapor de água existe no ar em relação ao máximo que ele comporta naquela temperatura. O sensor da estação mede esse valor.');
+  if(/sensor|dht11|esp32|firebase|firestore|de onde.*dados/.test(text))return say('O DHT11 mede temperatura e umidade. O ESP32 envia os dados pela internet e o Firebase os armazena. O site lê essas medições para montar gráficos, histórico e alertas.');
+  if(/offline|sem conexao|sem dados|nao atualiza|parou/.test(text))return say('Offline significa que o painel não recebeu uma leitura recente ou não conseguiu acessar os dados. Confira a alimentação e o Wi-Fi da estação, a internet do aparelho e o horário da última medição. O painel considera a estação sem leitura recente após dois minutos.');
+  if(/notifica|push|avisos/.test(text))return say('Em Alertas, toque em Ativar notificações e permita o acesso no navegador. Depois use Testar notificação. Se não chegar, confira as permissões do site e do sistema e se os avisos estão ativos neste aparelho. No iPhone, abra o site instalado na Tela de Início. O recebimento também depende da rede e das restrições do navegador.');
+  if(/limites|configurar.*alert|personalizar.*alert/.test(text))return say('Em Alertas → Alertas e limites você define temperatura mínima e máxima, faixa de umidade e tipos de aviso. Salve as preferências: os mesmos limites são usados no painel e nas notificações deste aparelho.');
+  if(/export|baixar.*dados|csv/.test(text))return say('Abra Dados, escolha o dia e toque em Exportar dia (CSV). A exportação usa as leituras do dia selecionado e o filtro de busca aplicado.');
+  if(/historico|dados.*dia|dias.*semana/.test(text))return say('Na página Dados, selecione um dia da semana ou use o campo de data. Você pode voltar semanas, buscar horários e carregar mais leituras. Os horários seguem Canto do Buriti, UTC−3.');
+  if(/localiza|onde fica|mapa/.test(text))return say('A estação fica em Canto do Buriti, Piauí. O mapa ajuda a localizar a região; não é um mapa oficial de focos de incêndio. Permitir a localização do aparelho não muda a origem das medições da estação.');
+  if(/lumi|quem e voce|o que voce faz/.test(text))return say('Sou a Lumi, guia do IMNVLab. Posso explicar o site, responder sobre as medições disponíveis e abrir páginas. Minhas respostas são locais e limitadas às informações do projeto; não sou uma IA de conversa geral.');
+  return false;
+ }
  function command(raw){
   stopListening();const text=normalize(raw);
   if(!text){answer('Digite uma pergunta ou toque em Falar com Lumi.');return;}
-  if(/\b(nao|cancele|cancelar|pare|parar)\b/.test(text)){answer('Tudo bem. Não vou navegar.');return;}
+  if(/\b(cancele|cancelar|pare|parar)\b|\bnao\s+(abra|abrir|va|navegue)/.test(text)){answer('Tudo bem. Não vou navegar.');return;}
   const pages=[[/\b(inicio|dashboard|principal)\b/,'dashboard'],[/\b(dados|historico)\b/,'dados'],[/alert|notifica/,'alertas'],[/analis/,'analises'],[/\bsobre\b|como funciona a estacao/,'sobre']].filter(([pattern])=>pattern.test(text)).map(([,page])=>page);
   const explain=/explic|como funciona|o que (e|sao)|ajud/.test(text), navigation=/\b(abrir|abra|abre|ir|va|ver|mostrar|mostre|consultar|leve)\b/.test(text);
+  if(!navigation&&siteAnswer(text))return;
   if(pages.length>1){answer('Você quer Início, Dados, Alertas, Análises ou Sobre? Escolha uma página por vez.');return;}
   if(explain){answer(descriptions[pages[0]||location.hash.slice(1)]||descriptions.dashboard);return;}
   if(/temperatura|graus|umidade|conforto|calor|frio/.test(text)&&!navigation){measurement(text);return;}
   const page=pages[0];
-  if(!page||(!navigation&&!/^(inicio|dashboard|dados( de (ontem|hoje))?|historico|alertas|analises|sobre)[.!?]*$/.test(text))){answer('Você quer abrir uma página ou fazer uma pergunta? Experimente “abrir alertas”, “explique os alertas” ou “qual a temperatura de hoje?”.');return;}
+  if(!page||(!navigation&&!/^(inicio|dashboard|dados( de (ontem|hoje))?|historico|alertas|analises|sobre)[.!?]*$/.test(text))){answer('Você quer abrir uma página ou fazer uma pergunta? Experimente “abrir alertas”, “explique os alertas” ou pergunte sobre temperatura, risco de incêndio e recomendações.');return;}
   location.hash='#'+page;navigate();
   if(page==='dados'&&/ontem|hoje/.test(text)){const day=new Date(dateKey(new Date())+'T12:00:00-03:00');if(text.includes('ontem'))day.setUTCDate(day.getUTCDate()-1);el('historyDate').value=dateKey(day);el('historyDate').dispatchEvent(new Event('change',{bubbles:true}));}
   answer('Pronto. '+descriptions[page]);

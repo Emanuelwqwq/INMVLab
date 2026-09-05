@@ -1,5 +1,5 @@
 /* Cache and push receiver; click handler must precede Firebase. */
-const CACHE_NAME = 'imnvlab-v12', RECEIPTS = 'imnvlab-push-receipts';
+const CACHE_NAME = 'imnvlab-v14', RECEIPTS = 'imnvlab-push-receipts';
 const APP_FILES = ['./', './index.html', './styles.css', './dashboard.js', './manifest.json', './marca-ceti.jpeg', './icon-192.png', './icon-512.png'];
 const scopeUrl = new URL(self.registration.scope);
 function safeTarget(value) {
