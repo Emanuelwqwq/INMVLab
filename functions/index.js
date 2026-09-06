@@ -42,8 +42,11 @@ function shouldSend(state, alert, now) {
   return alert.signature !== state.lastSentSignature || now - (state.lastSentAt || 0) >= 3600000;
 }
 function message(token, alert, id) {
-  // Data-only messages: the service worker displays exactly one notification.
-  return { token, data: { title: alert.title, body: alert.body, id, tag: 'imnvlab-weather', url: 'index.html#alertas' }, webpush: { headers: { TTL: '300', Urgency: 'high' } } };
+  const link = 'https://inmv-lab.vercel.app/index.html#alertas';
+  return { token, notification: { title: alert.title, body: alert.body },
+    data: { title: alert.title, body: alert.body, id, sentAt: String(Date.now()), tag: 'imnvlab-weather', url: 'index.html#alertas' },
+    webpush: { headers: { TTL: '300', Urgency: 'high' }, notification: { icon: 'https://inmv-lab.vercel.app/marca-ceti.jpeg', tag: 'imnvlab-weather' }, fcmOptions: { link } } };
+
 }
 return { DEFAULTS, validate, reading, condition, shouldSend, message };
 

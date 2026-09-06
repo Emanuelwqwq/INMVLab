@@ -199,8 +199,10 @@ const SitePush = (() => {
       el('notifyButton').disabled = busy;
     }
     async function registration() {
-      await navigator.serviceWorker.register('./service-worker.js');
-      return Promise.race([navigator.serviceWorker.ready, new Promise((_, reject) => { const timer = setTimeout(() => reject(new Error('service-worker-timeout')), 15000); navigator.serviceWorker.ready.then(() => clearTimeout(timer)); })]);
+      const worker = await navigator.serviceWorker.register('./service-worker.js', { scope: './', updateViaCache: 'none' });
+      if(worker.active)return worker;
+      await new Promise((resolve,reject)=>{let timer;const check=()=>{if(worker.active){clearTimeout(timer);resolve();}};timer=setTimeout(()=>reject(new Error('service-worker-timeout')),15000);const candidate=worker.installing||worker.waiting;candidate?.addEventListener('statechange',check);check();});
+      return worker;
     }
     async function subscribe() {
       await checkService();
@@ -755,8 +757,8 @@ start();
    if(!registration?.active)throw Error('Nenhum receptor ativo neste endereço. Recarregue o site.');
    channel=new MessageChannel();
    const result=await new Promise((resolve,reject)=>{timer=setTimeout(()=>reject(Error('O receptor não respondeu. Recarregue o site após publicar a atualização e tente novamente.')),6000);channel.port1.onmessage=event=>resolve(event.data);registration.active.postMessage({type:'IMNV_PUSH_DIAGNOSTICS'},[channel.port2]);});
-   const labels={received:'Recebida', 'display-accepted':'Exibição aceita pelo navegador','display-error':'Falha ao exibir',duplicate:'Duplicata ignorada','invalid-payload':'Mensagem inválida'};
-   report.textContent=[`Receptor: ${result.version}`,`Permissão: ${'Notification' in window?Notification.permission:'indisponível'}`,`Inscrição push: ${result.subscribed?'presente':'ausente'}`,`Esta página abriu em: ${stamp(performance.timeOrigin)}`,'Horários no fuso deste aparelho.','',...result.records.slice(0,10).map(record=>[
+   const labels={'firebase-background-completed':'Firebase concluiu o processamento em segundo plano',received:'Recebida', 'display-accepted':'Exibição aceita pelo navegador','display-error':'Falha ao exibir',duplicate:'Duplicata ignorada','invalid-payload':'Mensagem inválida'};
+   report.textContent=[`Receptor: ${result.version}`,`Modo: ${result.receiver||'nativo'}`,`Permissão: ${'Notification' in window?Notification.permission:'indisponível'}`,`Inscrição push: ${result.subscribed?'presente':'ausente'}`,`Esta página abriu em: ${stamp(performance.timeOrigin)}`,'Horários no fuso deste aparelho.','',...result.records.slice(0,10).map(record=>[
     `${labels[record.state]||record.state} · ${record.source==='page-forward'?'encaminhada pela página':'push direto'}`,
     `Recebimento: ${stamp(record.receivedAt)}`,record.sentAt?`Envio informado: ${stamp(record.sentAt)}`:null,
     record.displayedAt?`Exibição aceita: ${stamp(record.displayedAt)}`:null,

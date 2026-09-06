@@ -18,7 +18,7 @@ O `vercel.json` copia somente esses oito arquivos para a publicação. A pasta `
 - O endpoint de disponibilidade respondeu `available: true`; o teste sem autenticação foi bloqueado com HTTP 401, como esperado.
 - Imagens de build no Artifact Registry têm limpeza automática após sete dias.
 
-O bloqueio de faturamento foi resolvido. Na última conferência, a Vercel ainda servia a versão antiga com WhatsApp: envie os arquivos atualizados para o GitHub e aguarde a publicação da Vercel. Depois ative o push e teste a entrega no seu dispositivo. A entrega real ainda não foi verificada.
+O bloqueio de faturamento foi resolvido. O usuário confirmou a entrega no PC e no celular com o site aberto. No Redmi 14C, a entrega em segundo plano ainda não foi confirmada: os testes chegaram ao abrir o site. A versão v18 do receptor usa o SDK oficial do Firebase e o servidor passa a enviar notification + data. Atualize os arquivos na Vercel e confira em Alertas → Diagnóstico de notificações: receptor imnvlab-v18, modo firebase. Essa mudança ainda precisa ser validada no aparelho.
 
 ## Publicar futuras alterações nas funções
 

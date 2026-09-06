@@ -1,5 +1,5 @@
 /* Cache and push receiver; click handler must precede Firebase. */
-const CACHE_NAME = 'imnvlab-v17', RECEIPTS = 'imnvlab-push-receipts';
+const CACHE_NAME = 'imnvlab-v18', RECEIPTS = 'imnvlab-push-receipts';
 const DIAGNOSTICS = 'imnvlab-push-diagnostics';
 const APP_FILES = ['./', './index.html', './styles.css', './dashboard.js', './manifest.json', './marca-ceti.jpeg', './icon-192.png', './icon-512.png'];
 const scopeUrl = new URL(self.registration.scope);
@@ -48,14 +48,27 @@ self.addEventListener('message',event=>{
   let records=[];
   try{const cache=await caches.open(DIAGNOSTICS);const keys=await cache.keys();records=await Promise.all(keys.map(async key=>(await cache.match(key)).json()));}catch{}
   const subscription=await self.registration.pushManager.getSubscription().catch(()=>null);
-  event.ports[0].postMessage({version:CACHE_NAME,scope:self.registration.scope,subscribed:!!subscription,records:records.sort((a,b)=>b.receivedAt-a.receivedAt)});
+  event.ports[0].postMessage({version:CACHE_NAME,scope:self.registration.scope,subscribed:!!subscription,receiver:firebaseReceiver?'firebase':'native-fallback',records:records.sort((a,b)=>b.receivedAt-a.receivedAt)});
  })());
 });
 self.addEventListener('push',event=>{
  if(!event.data)return;
  let payload;try{payload=event.data.json();}catch{event.waitUntil(saveDiagnostic({key:Date.now()+'-invalid',version:CACHE_NAME,source:'push',receivedAt:Date.now(),state:'invalid-payload'}));return;}
- event.waitUntil(displayPush(payload));
+ if(!firebaseReceiver){event.waitUntil(displayPush(payload,'native-fallback'));return;}
+ const receivedAt=Date.now();event.waitUntil(clients.matchAll({type:'window',includeUncontrolled:true}).then(windows=>saveDiagnostic({key:receivedAt+'-arrival',version:CACHE_NAME,source:'push',receivedAt,sentAt:Number(payload.data?.sentAt)||null,state:'received',windows:windows.length,visible:windows.filter(w=>w.visibilityState==='visible').length})));
 });
+// Notification payloads are displayed by the official Firebase receiver in background.
+let firebaseReceiver=false;
+try{
+ importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js');
+ importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js');
+ firebase.initializeApp({ apiKey: "AIzaSyBWDcTMNN4aUYywXhgUw_gJzlkB45F1foM", authDomain: "climat-7c7f7.firebaseapp.com", projectId: "climat-7c7f7", storageBucket: "climat-7c7f7.firebasestorage.app", messagingSenderId: "267164246485", appId: "1:267164246485:web:a72b776b880ba5b8b71d5c" });
+ firebase.messaging().onBackgroundMessage(async payload=>{
+  if(!payload.notification)return displayPush(payload,'firebase-data');
+  const now=Date.now();await saveDiagnostic({key:now+'-firebase',version:CACHE_NAME,source:'firebase-auto',receivedAt:now,sentAt:Number(payload.data?.sentAt)||null,state:'firebase-background-completed'});
+ });
+ firebaseReceiver=true;
+}catch(error){console.warn('Firebase receiver unavailable; using native fallback:',error.name);}
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(APP_FILES))); self.skipWaiting();
 });
