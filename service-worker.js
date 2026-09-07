@@ -1,7 +1,7 @@
 /* Cache and push receiver; click handler must precede Firebase. */
-const CACHE_NAME = 'imnvlab-v18', RECEIPTS = 'imnvlab-push-receipts';
+const CACHE_NAME = 'imnvlab-v19', RECEIPTS = 'imnvlab-push-receipts';
 const DIAGNOSTICS = 'imnvlab-push-diagnostics';
-const APP_FILES = ['./', './index.html', './styles.css', './dashboard.js', './manifest.json', './marca-ceti.jpeg', './icon-192.png', './icon-512.png'];
+const APP_FILES = ['./', './index.html', './styles.css', './dashboard.js', './manifest.json', './marca-ceti.jpeg'];
 const scopeUrl = new URL(self.registration.scope);
 function safeTarget(value) {
   try { const url = new URL(value || 'index.html#alertas', scopeUrl); if (url.origin === scopeUrl.origin && url.pathname.startsWith(scopeUrl.pathname)) return url.href; } catch {}

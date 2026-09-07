@@ -6,7 +6,7 @@ Site de monitoramento climático com histórico por dia e notificações push.
 
 Envie os arquivos deste projeto, incluindo a pasta `functions`. **Não envie `node_modules`**: as dependências são instaladas apenas quando forem necessárias. O `.gitignore` já exclui dependências, arquivos temporários e credenciais.
 
-O site usa apenas `index.html`, `styles.css`, `dashboard.js`, `service-worker.js`, `manifest.json`, `marca-ceti.jpeg` e os dois ícones PNG. JavaScript e CSS foram unificados para reduzir o número de arquivos.
+O site usa apenas `index.html`, `styles.css`, `dashboard.js`, `service-worker.js`, `manifest.json`, `marca-ceti.jpeg` (logo atual compartilhada pelo site, aplicativo e notificações). JavaScript e CSS foram unificados para reduzir o número de arquivos.
 
 O `vercel.json` copia somente esses oito arquivos para a publicação. A pasta `functions`, as configurações do Firebase e esta documentação não são servidas aos visitantes. Na Vercel, conecte o repositório do site `https://inmv-lab.vercel.app` e deixe as configurações de build seguirem o `vercel.json`. Não é necessário instalar dependências para executar o site.
 
@@ -18,7 +18,7 @@ O `vercel.json` copia somente esses oito arquivos para a publicação. A pasta `
 - O endpoint de disponibilidade respondeu `available: true`; o teste sem autenticação foi bloqueado com HTTP 401, como esperado.
 - Imagens de build no Artifact Registry têm limpeza automática após sete dias.
 
-O bloqueio de faturamento foi resolvido. O usuário confirmou a entrega no PC e no celular com o site aberto. No Redmi 14C, a entrega em segundo plano ainda não foi confirmada: os testes chegaram ao abrir o site. A versão v18 do receptor usa o SDK oficial do Firebase e o servidor passa a enviar notification + data. Atualize os arquivos na Vercel e confira em Alertas → Diagnóstico de notificações: receptor imnvlab-v18, modo firebase. Essa mudança ainda precisa ser validada no aparelho.
+O bloqueio de faturamento foi resolvido. O usuário confirmou a entrega no PC e no celular com o site aberto. No Redmi 14C, a entrega em segundo plano ainda não foi confirmada: os testes chegaram ao abrir o site. A versão v18 do receptor usa o SDK oficial do Firebase e o servidor passa a enviar notification + data. Atualize os arquivos na Vercel e confira em Alertas → Diagnóstico de notificações: receptor imnvlab-v19, modo firebase. Essa mudança ainda precisa ser validada no aparelho.
 
 ## Publicar futuras alterações nas funções
 
