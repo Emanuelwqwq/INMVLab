@@ -147,176 +147,19 @@ function interfaceIcon(name){ return `<svg class="ui-icon" viewBox="0 0 24 24" f
 })(typeof window !== 'undefined' ? window : globalThis);
 
 
-// Notificações push
-const SitePush = (() => {
-  const defaults = { minTemp: 18, maxTemp: 30, minHum: 30, maxHum: 70, heat: true, cold: true, humidity: true, recovery: true, offline: true };
-  function create({ firebase, messaging, vapidKey }) {
-    const el = id => document.getElementById(id);
-    const auth = firebase.auth();
-    let settings = { ...defaults }, registered = false, available = null, busy = false, refreshTimer;
-    try { settings = { ...defaults, ...JSON.parse(localStorage.getItem('imnvlab-thresholds') || '{}'), ...JSON.parse(localStorage.getItem('imnvlab-push-settings') || '{}') }; } catch {}
-    function syncLimits(){ thresholds = { ...settings }; localStorage.setItem('imnvlab-thresholds', JSON.stringify(thresholds)); if(latest) updateCurrent(); }
-    syncLimits();
-    let optedIn = localStorage.getItem('imnvlab-push-enabled') === 'true';
-    const supported = !!messaging && window.isSecureContext && 'Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window;
-    // Callable protocol without the Functions SDK's implicit Messaging.getToken().
-    // Only subscribe() obtains a push token, using our worker and VAPID key.
-    async function call(name, data = {}) {
-      const headers = { 'Content-Type': 'application/json' };
-      if (name !== 'pushStatus' && auth.currentUser) headers.Authorization = 'Bearer ' + await auth.currentUser.getIdToken();
-      const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 30000);
-      try {
-        const response = await fetch(`https://southamerica-east1-${firebase.app().options.projectId}.cloudfunctions.net/${name}`, {
-          method: 'POST', headers, body: JSON.stringify({ data }), signal: controller.signal
-        });
-        const body = await response.json();
-        if (!response.ok || body.error) {
-          const error = new Error('Falha na chamada do serviço');
-          error.code = 'functions/' + (body.error?.status || 'unavailable').toLowerCase().replaceAll('_', '-');
-          throw error;
-        }
-        return body.result ?? body.data;
-      } finally { clearTimeout(timer); }
-    }
-    async function checkService() {
-      try { available = (await call('pushStatus'))?.available === true; }
-      catch (error) { available = false; throw error; }
-      if (!available) throw new Error('service-unavailable');
-    }
-    const feedback = text => { el('pushFeedback').textContent = text; };
-    function render() {
-      const permission = 'Notification' in window ? Notification.permission : 'unsupported';
-      el('pushStatus').textContent = !supported ? 'Não disponível neste navegador' : registered ? '● Ativo neste dispositivo' : permission === 'denied' ? 'Permissão bloqueada' : '○ Desativado neste dispositivo';
-      el('pushServiceStatus').textContent = available === null ? 'Verificando serviço automático…' : available ? 'Serviço automático disponível' : 'Não foi possível acessar o serviço automático';
-      el('pushEnable').disabled = busy || !supported || registered;
-      el('pushDisable').disabled = busy || !optedIn;
-      el('pushTest').disabled = busy || !registered;
-      el('pushSave').disabled = busy;
-      el('notifyButton').innerHTML = interfaceIcon('bell') + ' Notificações';
-      el('pushEnable').hidden = registered;
-      el('pushTest').hidden = !registered;
-      el('pushDisable').hidden = !optedIn;
-      el('notifyButton').disabled = busy;
-    }
-    async function registration() {
-      const worker = await navigator.serviceWorker.register('./service-worker.js', { scope: './', updateViaCache: 'none' });
-      if(worker.active)return worker;
-      await new Promise((resolve,reject)=>{let timer;const check=()=>{if(worker.active){clearTimeout(timer);resolve();}};timer=setTimeout(()=>reject(new Error('service-worker-timeout')),15000);const candidate=worker.installing||worker.waiting;candidate?.addEventListener('statechange',check);check();});
-      return worker;
-    }
-    async function subscribe() {
-      await checkService();
-      if (!auth.currentUser) await auth.signInAnonymously();
-      const worker = await registration();
-      const token = await messaging.getToken({ vapidKey, serviceWorkerRegistration: worker });
-      if (!token) throw new Error('missing-token');
-      await call('registerPush', { token, settings });
-      registered = true; optedIn = true;
-      localStorage.setItem('imnvlab-push-enabled', 'true');
-      localStorage.setItem('imnvlab-push-settings', JSON.stringify(settings));
-    }
-    function errorText(error) {
-      if (error.code?.startsWith('auth/')) return 'O Firebase Authentication precisa permitir acesso anônimo para cadastrar este dispositivo. Nenhum login pessoal é necessário.';
-      if (error.code === 'functions/invalid-argument') return 'Confira os limites: a mínima precisa ser menor que a máxima, e a umidade deve ficar entre 0 e 100%.';
-      if (error.code === 'functions/resource-exhausted') return 'Aguarde um minuto antes de testar novamente.';
-      if (error.code === 'messaging/permission-blocked' || error.name === 'NotAllowedError') return 'O navegador bloqueou o push. Permita notificações nas configurações deste site e tente novamente.';
-      if (error.code === 'messaging/failed-service-worker-registration' || error.message === 'service-worker-timeout') return 'Não foi possível iniciar as notificações em segundo plano. Atualize a página e tente novamente. Código: ' + (error.code || 'service-worker-timeout');
-      if (error.code?.startsWith('messaging/') || error.name === 'AbortError' || error.name === 'InvalidStateError') return 'O cadastro de notificações não foi concluído neste navegador. Tente novamente; se persistir, informe este código: ' + (error.code || error.name) + '.';
-      return 'Não foi possível concluir. Verifique a conexão e se o serviço de push foi publicado no Firebase. Nenhuma ativação foi confirmada.';
-    }
-    async function enable() {
-      location.hash = '#alertas';
-      if (!supported) { feedback('Use um navegador compatível e um endereço HTTPS. No iPhone/iPad, adicione o site à Tela de Início e abra por esse ícone.'); return; }
-      if (Notification.permission === 'denied') { feedback('Libere as notificações nas configurações deste site no navegador e tente novamente.'); return; }
-      if (registered) { feedback('As notificações já estão ativas neste dispositivo. Você pode enviar um teste abaixo.'); return; }
-      busy = true; render();
-      try {
-        // The permission request stays directly inside the user's click gesture.
-        const permission = await Notification.requestPermission();
-        if (permission !== 'granted') { feedback('Permissão não concedida. Você pode ativar quando quiser.'); return; }
-        await subscribe(); feedback('Push ativado neste dispositivo. Use “Testar notificação” para conferir a entrega.');
-      } catch (error) { registered = false; feedback(errorText(error)); }
-      finally { busy = false; render(); }
-    }
-    async function disable() {
-      busy = true; render();
-      try {
-        if (auth.currentUser) await call('disablePush');
-        await messaging.deleteToken();
-        registered = false; optedIn = false; localStorage.setItem('imnvlab-push-enabled', 'false');
-        feedback('Push desativado neste dispositivo. Você pode reativar depois.');
-      } catch { feedback('Não foi possível concluir a desativação. Verifique a conexão e tente novamente.'); }
-      finally { busy = false; render(); }
-    }
-    for (const key of Object.keys(defaults)) {
-      const input = el('push-' + key);
-      if (typeof defaults[key] === 'boolean') input.checked = settings[key]; else input.value = settings[key];
-    }
-    el('pushForm').addEventListener('submit', async event => {
-      event.preventDefault();
-      const next = Object.fromEntries(Object.keys(defaults).map(key => [key, typeof defaults[key] === 'boolean' ? el('push-' + key).checked : Number(el('push-' + key).value)]));
-      if (next.minTemp >= next.maxTemp || next.minHum >= next.maxHum) { feedback('A mínima precisa ser menor que a máxima.'); return; }
-      const previous = settings; settings = next; busy = true; render();
-      try {
-        if (registered) await subscribe();
-        localStorage.setItem('imnvlab-push-settings', JSON.stringify(settings));
-        syncLimits();
-        feedback(registered ? 'Limites salvos para o painel e as notificações.' : 'Limites salvos no painel. Ative as notificações para receber os mesmos avisos neste aparelho.');
-      } catch (error) { settings = previous; feedback(errorText(error)); }
-      finally { busy = false; render(); }
-    });
-    el('pushEnable').addEventListener('click', enable);
-    el('pushDisable').addEventListener('click', disable);
-    el('pushTest').addEventListener('click', async () => {
-      busy = true; render();
-      try { await call('testPush'); feedback('Teste aceito pelo Firebase. Confira a notificação neste dispositivo.'); }
-      catch (error) { feedback(errorText(error)); }
-      finally { busy = false; render(); }
-    });
-    // Only the service worker displays messages, including those received with a tab in front.
-    // This avoids the old duplicate local alerts and supports mobile browsers.
-    if (messaging) messaging.onMessage(async payload => {
-      if (!optedIn || Notification.permission !== 'granted') return;
-      try { const worker = await registration(); worker.active?.postMessage({ type: 'IMNV_PUSH', payload }); } catch {}
-    });
-    async function restore() {
-      if (!supported || busy) return;
-      busy = true; render();
-      try {
-        await checkService();
-        if (optedIn && Notification.permission === 'granted') { await subscribe(); feedback('Push ativo. As preferências são específicas deste dispositivo.'); }
-        else if (optedIn && auth.currentUser) { await call('disablePush'); registered = false; optedIn = false; localStorage.setItem('imnvlab-push-enabled', 'false'); }
-      } catch (error) { registered = false; feedback(errorText(error)); }
-      finally { busy = false; render(); }
-    }
-    auth.onAuthStateChanged(() => { clearTimeout(refreshTimer); refreshTimer = setTimeout(restore, 0); });
-    window.addEventListener('online', restore);
-    render();
-    return { enable };
-  }
-  return { create };
-})();
-
-
 // Painel da estação
-const firebaseConfig = { apiKey: "AIzaSyBWDcTMNN4aUYywXhgUw_gJzlkB45F1foM", authDomain: "climat-7c7f7.firebaseapp.com", projectId: "climat-7c7f7", storageBucket: "climat-7c7f7.firebasestorage.app", messagingSenderId: "267164246485", appId: "1:267164246485:web:a72b776b880ba5b8b71d5c" };
+const firebaseConfig = { apiKey: "AIzaSyBWDcTMNN4aUYywXhgUw_gJzlkB45F1foM", authDomain: "climat-7c7f7.firebaseapp.com", projectId: "climat-7c7f7", storageBucket: "climat-7c7f7.firebasestorage.app", appId: "1:267164246485:web:a72b776b880ba5b8b71d5c" };
 
-// Chave pública conferida no Firebase Console em 05/09/2026.
-const VAPID_KEY = 'BNEXQLVGXD7XSZ3dsOln7xqJkgqxDpb5OxwLv54CrQnYjEjvwq4zEUhFly4V2rh7i2MQYFDYU19GDyRPZgojIas';
 
 const MAX_POINTS = 20;
 const SENSOR_TIMEOUT_MS = 120000;
-let readings = [], latest = null, historyChart, analysisChart, regionalMap, locationMarker, lastAlertSignature = '', offlineNotified = false, locationWatchId = null, lastReadingAt = null, sensorOfflineNotified = false;
+let readings = [], latest = null, historyChart, analysisChart, regionalMap, locationMarker, lastAlertSignature = '', locationWatchId = null, lastReadingAt = null;
 let thresholds = JSON.parse(localStorage.getItem('imnvlab-thresholds') || '{"maxTemp":30,"minHum":30,"maxHum":70}');
-let messaging = null;
+
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
-try {
-  messaging = firebase.messaging();
-} catch (e) {
-  console.warn('Firebase Messaging não disponível neste navegador:', e);
-}
+
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -355,10 +198,8 @@ function updateSensorStatus(){
     $('#alertBadge').textContent = '1';
     $('#alertCount').textContent = '1';
     $('#alertList').innerHTML = '<div class="alert-item"><span class="alert-symbol">!</span><div><strong>Estação offline</strong><small>Nenhuma leitura nova há mais de 2 minutos.</small></div><span class="alert-time">agora</span></div>';
-    sensorOfflineNotified = true;
     return false;
   }
-  sensorOfflineNotified = false;
   $('#statusText').textContent = 'Estação online';
   $('#connPill').innerHTML = '<i></i> conectado';
   $('#statusDot').style.background = 'var(--teal)';
@@ -598,8 +439,6 @@ function navigate(){
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-let pushController;
-function enableNotifications(){ return pushController.enable(); }
 
 function showOffline(){
   updateFreshness();
@@ -612,7 +451,6 @@ function showOffline(){
   $('#alertBadge').textContent = '1';
   $('#alertCount').textContent = '1';
   $('#alertList').innerHTML = '<div class="alert-item"><span class="alert-symbol">!</span><div><strong>Estação offline</strong><small>Não foi possível receber dados do Firestore.</small></div><span class="alert-time">agora</span></div>';
-  offlineNotified = true;
 }
 
 function showConnecting(){
@@ -637,12 +475,9 @@ function start(){
   $('#exportButton').addEventListener('click', exportCsv);
   $('#searchInput').addEventListener('input', updateTable);
   $('#runAnalysisButton').addEventListener('click', () => loadDailyAnalysis(true));
-  $('#notifyButton').addEventListener('click', () => { location.hash = '#alertas'; });
 
-  pushController = SitePush.create({ firebase, messaging, vapidKey: VAPID_KEY });
 
   db.collection('leituras').orderBy('timestamp', 'desc').limit(100).onSnapshot(snapshot => {
-    offlineNotified = false;
     readings = snapshot.docs.map(doc => {
       const data = doc.data();
       return { temp: Number(data.temperatura), hum: Number(data.umidade), date: readingDate(data.timestamp) };
@@ -662,7 +497,7 @@ start();
  const el=id=>document.getElementById(id), panel=el('guidePanel'), toggle=el('guideToggle'), field=el('guideText'), listen=el('guideListen');
  const normalize=text=>text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
  const dateKey=date=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Fortaleza',year:'numeric',month:'2-digit',day:'2-digit'}).format(date);
- const descriptions={dashboard:'No início você encontra temperatura, umidade e conforto. Os valores são da última medição, cujo horário aparece no painel.',dados:'Em Dados, escolha um dia da semana ou uma data. Você pode buscar um horário e exportar as medições.',alertas:'Alertas mostra o que precisa de atenção. Ativar notificações permite receber avisos neste aparelho. Em Escolher alertas e limites você personaliza esses avisos.',analises:'Análises consulta todas as medições registradas hoje, no horário da estação. A média é por leitura e não estima os períodos sem dados.',sobre:'A estação usa um sensor para medir temperatura e umidade. O ESP32 envia as leituras pela internet para o site.'};
+ const descriptions={dashboard:'No início você encontra temperatura, umidade e conforto. Os valores são da última medição, cujo horário aparece no painel.',dados:'Em Dados, escolha um dia da semana ou uma data. Você pode buscar um horário e exportar as medições.',alertas:'Alertas mostra as condições que precisam de atenção. Em Limites do painel você escolhe as faixas de temperatura e umidade.',analises:'Análises consulta todas as medições registradas hoje, no horário da estação. A média é por leitura e não estima os períodos sem dados.',sobre:'A estação usa um sensor para medir temperatura e umidade. O ESP32 envia as leituras pela internet para o site.'};
  let recognition=null, timer, session=0;
  function stopListening(){session++;clearTimeout(timer);const old=recognition;recognition=null;if(old){old.onend=old.onerror=old.onresult=null;try{old.abort();}catch{}}listen.textContent=Recognition?'Falar com Lumi':'Voz indisponível';}
  function answer(text,read=true){el('guideReply').textContent=text;window.speechSynthesis?.cancel();if(read&&el('guideSpeak').checked&&'speechSynthesis' in window){stopListening();const utterance=new SpeechSynthesisUtterance(text);utterance.lang='pt-BR';speechSynthesis.speak(utterance);}}
@@ -701,14 +536,13 @@ start();
    if(latest.temp<(thresholds.minTemp??18))tips.push('A temperatura está abaixo do seu limite mínimo. Acompanhe as próximas medições.');
    if(latest.hum<thresholds.minHum||latest.hum>thresholds.maxHum)tips.push('A umidade está fora da faixa configurada. Confira a tendência no histórico.');
    if(!tips.length)tips.push('A temperatura e a umidade estão dentro dos seus limites configurados. Continue acompanhando as medições.');
-   return say(tips.join(' ')+' Você pode ativar notificações em Alertas para acompanhar mudanças. Base: leitura de '+stamp+'.');
+   return say(tips.join(' ')+' Base: leitura de '+stamp+'.');
   }
   if(/confort/.test(text)&&/significa|calcul|o\s*que|oque/.test(text))return say('Conforto é uma pontuação estimada de 0 a 100 usando temperatura e umidade. Quanto maior, mais próximas das faixas de referência do painel estão as condições. Não é uma medição direta de sensação térmica nem uma avaliação individual de saúde.');
   if(/umidade/.test(text)&&/significa|o\s*que|oque/.test(text))return say('Umidade relativa indica, em porcentagem, quanto vapor de água existe no ar em relação ao máximo que ele comporta naquela temperatura. O sensor da estação mede esse valor.');
   if(/sensor|dht11|esp32|firebase|firestore|de onde.*dados/.test(text))return say('O DHT11 mede temperatura e umidade. O ESP32 envia os dados pela internet e o Firebase os armazena. O site lê essas medições para montar gráficos, histórico e alertas.');
   if(/offline|sem conexao|sem dados|nao atualiza|parou/.test(text))return say('Offline significa que o painel não recebeu uma leitura recente ou não conseguiu acessar os dados. Confira a alimentação e o Wi-Fi da estação, a internet do aparelho e o horário da última medição. O painel considera a estação sem leitura recente após dois minutos.');
-  if(/notifica|push|avisos/.test(text))return say('Em Alertas, toque em Ativar notificações e permita o acesso no navegador. Depois use Testar notificação. Se não chegar, confira as permissões do site e do sistema e se os avisos estão ativos neste aparelho. No iPhone, abra o site instalado na Tela de Início. O recebimento também depende da rede e das restrições do navegador.');
-  if(/limites|configurar.*alert|personalizar.*alert/.test(text))return say('Em Alertas → Alertas e limites você define temperatura mínima e máxima, faixa de umidade e tipos de aviso. Salve as preferências: os mesmos limites são usados no painel e nas notificações deste aparelho.');
+  if(/limites|configurar.*alert|personalizar.*alert/.test(text))return say('Em Alertas → Limites do painel você define temperatura mínima e máxima, faixa de umidade e condições destacadas. As preferências ficam salvas neste navegador.');
   if(/export|baixar.*dados|csv/.test(text))return say('Abra Dados, escolha o dia e toque em Exportar dia (CSV). A exportação usa as leituras do dia selecionado e o filtro de busca aplicado.');
   if(/historico|dados.*dia|dias.*semana/.test(text))return say('Na página Dados, selecione um dia da semana ou use o campo de data. Você pode voltar semanas, buscar horários e carregar mais leituras. Os horários seguem Canto do Buriti, UTC−3.');
   if(/localiza|onde fica|mapa/.test(text))return say('A estação fica em Canto do Buriti, Piauí. O mapa ajuda a localizar a região; não é um mapa oficial de focos de incêndio. Permitir a localização do aparelho não muda a origem das medições da estação.');
@@ -719,7 +553,7 @@ start();
   stopListening();const text=normalize(raw);
   if(!text){answer('Digite uma pergunta ou toque em Falar com Lumi.');return;}
   if(/\b(cancele|cancelar|pare|parar)\b|\bnao\s+(abra|abrir|va|navegue)/.test(text)){answer('Tudo bem. Não vou navegar.');return;}
-  const pages=[[/\b(inicio|dashboard|principal)\b/,'dashboard'],[/\b(dados|historico)\b/,'dados'],[/alert|notifica/,'alertas'],[/analis/,'analises'],[/\bsobre\b|como funciona a estacao/,'sobre']].filter(([pattern])=>pattern.test(text)).map(([,page])=>page);
+  const pages=[[/\b(inicio|dashboard|principal)\b/,'dashboard'],[/\b(dados|historico)\b/,'dados'],[/alert/,'alertas'],[/analis/,'analises'],[/\bsobre\b|como funciona a estacao/,'sobre']].filter(([pattern])=>pattern.test(text)).map(([,page])=>page);
   const explain=/explic|como funciona|o que (e|sao)|ajud/.test(text), navigation=/\b(abrir|abra|abre|ir|va|ver|mostrar|mostre|consultar|leve)\b/.test(text);
   if(!navigation&&siteAnswer(text))return;
   if(pages.length>1){answer('Você quer Início, Dados, Alertas, Análises ou Sobre? Escolha uma página por vez.');return;}
@@ -745,28 +579,17 @@ start();
  });
  window.addEventListener('keydown',event=>{if(event.key==='Escape'&&!panel.hidden)close();});document.addEventListener('visibilitychange',()=>{if(document.hidden){stopListening();window.speechSynthesis?.cancel();}});
 })();
-// Diagnóstico local: consultar não ativa push nem envia notificações.
-(function setupPushDiagnostics(){
- const panel=document.getElementById('pushDiagnostics'), button=document.getElementById('refreshPushDiagnostics'), report=document.getElementById('pushDiagnosticReport');
- const stamp=value=>value?new Date(value).toLocaleString('pt-BR'):'não informado';
- async function inspect(){
-  button.disabled=true;report.textContent='Consultando receptor…';let channel,timer;
-  try{
-   if(!('serviceWorker' in navigator))throw Error('Este navegador não oferece service worker.');
-   const registration=await navigator.serviceWorker.getRegistration(new URL('./',location.href).href);
-   if(!registration?.active)throw Error('Nenhum receptor ativo neste endereço. Recarregue o site.');
-   channel=new MessageChannel();
-   const result=await new Promise((resolve,reject)=>{timer=setTimeout(()=>reject(Error('O receptor não respondeu. Recarregue o site após publicar a atualização e tente novamente.')),6000);channel.port1.onmessage=event=>resolve(event.data);registration.active.postMessage({type:'IMNV_PUSH_DIAGNOSTICS'},[channel.port2]);});
-   const labels={'firebase-background-completed':'Firebase concluiu o processamento em segundo plano',received:'Recebida', 'display-accepted':'Exibição aceita pelo navegador','display-error':'Falha ao exibir',duplicate:'Duplicata ignorada','invalid-payload':'Mensagem inválida'};
-   report.textContent=[`Receptor: ${result.version}`,`Modo: ${result.receiver||'nativo'}`,`Permissão: ${'Notification' in window?Notification.permission:'indisponível'}`,`Inscrição push: ${result.subscribed?'presente':'ausente'}`,`Esta página abriu em: ${stamp(performance.timeOrigin)}`,'Horários no fuso deste aparelho.','',...result.records.slice(0,10).map(record=>[
-    `${labels[record.state]||record.state} · ${record.source==='page-forward'?'encaminhada pela página':'push direto'}`,
-    `Recebimento: ${stamp(record.receivedAt)}`,record.sentAt?`Envio informado: ${stamp(record.sentAt)}`:null,
-    record.displayedAt?`Exibição aceita: ${stamp(record.displayedAt)}`:null,
-    `Páginas abertas: ${record.windows??'?'} · visíveis: ${record.visible??'?'}`,
-    record.error?`Erro: ${record.error}`:null,record.receiptCacheError?'Cache indisponível; exibição tentada mesmo assim.':null
-   ].filter(Boolean).join('\n'))].join('\n\n');
-   if(!result.records.length)report.textContent+='\nNenhum recebimento registrado desde esta atualização.';
-  }catch(error){report.textContent=error.message;}finally{clearTimeout(timer);channel?.port1.close();button.disabled=false;}
- }
- button.addEventListener('click',inspect);panel.addEventListener('toggle',()=>{if(panel.open)inspect();});
+
+(function setupLimits(){
+ const defaults={minTemp:18,maxTemp:30,minHum:30,maxHum:70,heat:true,cold:true,humidity:true};
+ for(const [key,value] of Object.entries(defaults)){const input=document.getElementById('limit-'+key);if(typeof value==='boolean')input.checked=thresholds[key]??value;else input.value=thresholds[key]??value;}
+ document.getElementById('limitsForm').addEventListener('submit',event=>{
+  event.preventDefault();const next=Object.fromEntries(Object.entries(defaults).map(([key,value])=>{const input=document.getElementById('limit-'+key);return [key,typeof value==='boolean'?input.checked:Number(input.value)];}));
+  const feedback=document.getElementById('limitsFeedback');
+  if(next.minTemp>=next.maxTemp||next.minHum>=next.maxHum){feedback.textContent='O mínimo deve ser menor que o máximo.';return;}
+  try{localStorage.setItem('imnvlab-thresholds',JSON.stringify(next));thresholds=next;if(latest)updateOverview();feedback.textContent='Limites salvos neste navegador.';}catch{feedback.textContent='Não foi possível salvar os limites neste navegador.';}
+ });
 })();
+// Remove os cadastros locais do recurso descontinuado.
+try{for(const key of Object.keys(localStorage))if(key.startsWith('imnvlab-push-'))localStorage.removeItem(key);indexedDB.deleteDatabase('firebase-messaging-database');}catch{}
+if('serviceWorker' in navigator)navigator.serviceWorker.register('./service-worker.js',{scope:'./',updateViaCache:'none'}).catch(error=>console.warn('Cache offline indisponível:',error));
