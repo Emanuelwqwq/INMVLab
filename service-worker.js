@@ -1,7 +1,7 @@
 /* Cache and push receiver; click handler must precede Firebase. */
-const CACHE_NAME = 'imnvlab-v19', RECEIPTS = 'imnvlab-push-receipts';
+const CACHE_NAME = 'imnvlab-v20', RECEIPTS = 'imnvlab-push-receipts';
 const DIAGNOSTICS = 'imnvlab-push-diagnostics';
-const APP_FILES = ['./', './index.html', './styles.css', './dashboard.js', './manifest.json', './marca-ceti.jpeg'];
+const APP_FILES = ['./', './index.html', './styles.css', './dashboard.js', './manifest.json?v=20', './marca-ceti.jpeg?v=20'];
 const scopeUrl = new URL(self.registration.scope);
 function safeTarget(value) {
   try { const url = new URL(value || 'index.html#alertas', scopeUrl); if (url.origin === scopeUrl.origin && url.pathname.startsWith(scopeUrl.pathname)) return url.href; } catch {}
@@ -33,7 +33,7 @@ function displayPush(payload, source='push') {
   try{cache=await caches.open(RECEIPTS);if(receipt&&await cache.match(receipt)){await receivedLog;record.state='duplicate';await saveDiagnostic(record);return;}}catch{record.receiptCacheError=true;}
   try{
    await self.registration.showNotification(data.title||payload.notification?.title||'IMNVLab · Alerta',{
-    body:data.body||payload.notification?.body||'Nova condição ambiental detectada.',icon:new URL('marca-ceti.jpeg',scopeUrl).href,
+    body:data.body||payload.notification?.body||'Nova condição ambiental detectada.',icon:new URL('marca-ceti.jpeg?v=20',scopeUrl).href,
     tag:data.tag||'imnvlab-weather',data:{url:safeTarget(data.url)}
    });
    const displayedAt=Date.now();await receivedLog;record.displayedAt=displayedAt;record.state='display-accepted';await saveDiagnostic(record);
