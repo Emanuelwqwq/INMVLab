@@ -539,6 +539,26 @@ start();
  function answer(text,read=true){el('guideReply').textContent=text;window.speechSynthesis?.cancel();if(read&&el('guideSpeak').checked&&'speechSynthesis' in window){stopListening();const utterance=new SpeechSynthesisUtterance(text);utterance.lang='pt-BR';speechSynthesis.speak(utterance);}}
  function close(){stopListening();window.speechSynthesis?.cancel();panel.hidden=true;toggle.setAttribute('aria-expanded','false');toggle.focus();}
  const Recognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+ function environmentAdvice(current){
+  const score=comfortScore(current.temp,current.hum),parts=[];
+  parts.push('O conforto estimado é '+score+'/100: '+(score>=75?'ambiente confortável':score>=50?'conforto moderado':'ambiente desconfortável')+'. Essa pontuação combina temperatura e umidade; não mede como cada pessoa se sente.');
+  if(current.temp>=28)parts.push('Há calor. Prefira um local fresco, à sombra, e mantenha água disponível para se hidratar.');
+  else if(current.temp<18)parts.push('Está frio. Use roupas adequadas e proteja o ambiente de correntes de ar frio.');
+  if(current.hum<40)parts.push('A umidade está baixa: o ar está mais seco. Evite exposição a poeira e fumaça e acompanhe as próximas medições.');
+  else if(current.hum>70)parts.push('A umidade está alta. Observe sinais de condensação e mofo e mantenha o ambiente seco.');
+  const outside=current.temp>(thresholds.maxTemp??30)||current.temp<(thresholds.minTemp??18)||current.hum<(thresholds.minHum??30)||current.hum>(thresholds.maxHum??70);
+  parts.push(outside?'Há valores fora dos limites configurados. Abra Alertas para conferir quais condições estão destacadas.':'Os valores estão dentro dos limites que você configurou. Isso pode coexistir com calor ou ar seco: os limites dos alertas são personalizáveis.');
+  return parts.join('\n\n');
+ }
+ function explainEnvironment(){
+  const summary=summarizeRecentReadings(readings,thresholds);
+  if(!summary)return 'Ainda não tenho medições válidas para interpretar. Aguarde a estação ou abra Dados para consultar o histórico.';
+  const current=summary.end,stamp=current.date.toLocaleString('pt-BR',{timeZone:'America/Fortaleza'});
+  if(summary.stale)return 'A última medição é de '+stamp+' e está desatualizada. Não posso afirmar como o ambiente está agora. Confira a alimentação e o Wi-Fi da estação; em Dados você pode consultar o histórico.';
+  let result='Na leitura de '+stamp+': '+current.temp.toLocaleString('pt-BR')+' °C e '+current.hum.toLocaleString('pt-BR')+'% de umidade. '+environmentAdvice(current);
+  if(summary.tempDelta!==null){const delta=summary.tempDelta;result+=' Nas '+summary.count+' amostras recentes, a temperatura '+(Math.abs(delta)<0.05?'não mudou entre a primeira e a última leitura':(delta>0?'subiu ':'caiu ')+Math.abs(delta).toLocaleString('pt-BR',{maximumFractionDigits:1})+' °C entre a primeira e a última leitura')+'. Isso descreve o intervalo observado, não uma previsão. Consulte o gráfico em Análises para explorar o dia.';}
+  return result;
+ }
  function measurement(text){
   if(/amanha|previsao/.test(text)){answer('A estação mede o ambiente; não tenho previsão do tempo para amanhã. Posso informar a última leitura de hoje.');return;}
   if(/ontem|semana|\d{1,2}[/-]\d/.test(text)){answer('Para outra data, consulte Dados. Posso abrir “dados de ontem”. Aqui respondo sobre as leituras recentes de hoje.');return;}
@@ -553,12 +573,19 @@ start();
    result=[temperature?summarize('temp','Temperatura','°C'):null,humidity?summarize('hum','Umidade','%'):null].filter(Boolean).join('. ')+`. Cálculo sobre ${today.length} leituras recentes de hoje carregadas no painel, não necessariamente o dia inteiro.`;
   }else result=`Na última leitura de hoje, às ${time} (horário da estação): `+[temperature?`temperatura de ${fmt(current.temp)} °C`:null,humidity?`umidade de ${fmt(current.hum)}%`:null,comfort?`conforto de ${comfortScore(current.temp,current.hum)}/100`:null].filter(Boolean).join('; ')+'.';
   if(Date.now()-current.date.getTime()>SENSOR_TIMEOUT_MS)result+=' A estação está sem leitura recente; esses valores não confirmam as condições de agora.';
+  if(Date.now()-current.date.getTime()<=SENSOR_TIMEOUT_MS&&!/media|maxima|minima|maior|menor/.test(text))result+=' '+environmentAdvice(current);
   answer(result);
  }
  function siteAnswer(text){
   const say=value=>{answer(value);return true;};
-  if(/\b(imnvlab|inmvlab|inmvlab|imnv lab|inmv lab)\b/.test(text)&&/o\s*que|oque|quem|significa|projeto/.test(text))return say('IMNVLab significa Instituto Meteorológico Nonato Valente. É o site de monitoramento ambiental da estação de Canto do Buriti, no Piauí. Ele apresenta temperatura e umidade, histórico por dia, indicadores de conforto, estimativa de risco de incêndio e alertas. A marca exibida é do CETI Nonato Valente.');
-  if(/\bceti\b/.test(text))return say('CETI significa Centro Estadual de Tempo Integral. A imagem do site é a marca do CETI Nonato Valente. O nome do painel continua sendo IMNVLab.');
+  if(/amanha|previsao|vai chover/.test(text))return say('A estação mede temperatura e umidade. Não tenho previsão do tempo nem dados de chuva para responder isso.');
+  if(/como.*(ambiente|clima|tempo)|ambiente.*(bom|ruim|confort|desconfort|seguro)|interpret|o que.*(dados|medicoes|numeros).*diz|o que.*(dados|medicoes).*signific|tendencia|esta (quente|frio|seco)|ar (seco|abafado)|medidas preventivas|como.*(proteger|prevenir)|o que.*(fazer|melhorar)/.test(text)){
+   if(/ontem|semana passada/.test(text))return say('Para interpretar outro dia, abra Dados e selecione a data. O resumo que faço aqui usa somente as medições recentes disponíveis.');
+   return say(explainEnvironment());
+  }
+  if(/notifica|push/.test(text))return say('Em Alertas, escolha as condições, salve os limites e use Ativar neste aparelho. Depois toque em Enviar teste. A estação é considerada offline após 2 minutos sem leituras, com verificação a cada minuto; outro aviso informa o retorno. É preciso ativar em cada aparelho.');
+  if(/\b(imnvlab|inmvlab|inmvlab|imnv lab|inmv lab)\b/.test(text)&&/o\s*que|oque|quem|significa|projeto/.test(text))return say('IMNVLab significa Instituto Meteorológico Nonato Valente. É o site de monitoramento ambiental da estação de Canto do Buriti, no Piauí. Ele apresenta temperatura e umidade, histórico por dia, indicadores de conforto, estimativa de risco de incêndio e alertas. A Lumi ajuda a interpretar essas informações em linguagem simples.');
+  if(/\bceti\b/.test(text))return say('CETI significa Centro Estadual de Tempo Integral. O painel tem sua própria marca IMNVLab.');
   if(/incend|queimada|recomenda|sugest|cuidados|dicas|devo fazer/.test(text)){
    if(/amanha|previsao/.test(text))return say('Não tenho previsão meteorológica. O site calcula indicadores a partir das medições da estação.');
    if(/ontem|semana passada/.test(text))return say('Para verificar outro dia, consulte o histórico em Dados. Aqui uso a última medição disponível, sem atribuí-la a uma data diferente.');
@@ -567,18 +594,13 @@ start();
    const stamp=latest.date.toLocaleString('pt-BR',{timeZone:'America/Fortaleza'}),stale=Date.now()-latest.date.getTime()>SENSOR_TIMEOUT_MS;
    if(/incend|queimada/.test(text))return say('O risco estimado pelo painel é '+fireRisk(latest.temp,latest.hum).label+', com '+latest.temp.toLocaleString('pt-BR')+' °C e '+latest.hum.toLocaleString('pt-BR')+'% de umidade. Leitura de '+stamp+'. '+(stale?'A leitura está desatualizada e não confirma o risco agora. ':'')+'É um indicador simplificado de temperatura e umidade, não um alerta oficial ou detector de incêndio.');
    if(stale)return say('A estação está sem leitura recente. Minha recomendação é verificar a conexão e a alimentação da estação antes de usar os valores para avaliar o ambiente. Última medição: '+stamp+'.');
-   const tips=[];
-   if(latest.temp>thresholds.maxTemp)tips.push('A temperatura está acima do limite que você configurou. Acompanhe sua evolução em Dados.');
-   if(latest.temp<(thresholds.minTemp??18))tips.push('A temperatura está abaixo do seu limite mínimo. Acompanhe as próximas medições.');
-   if(latest.hum<thresholds.minHum||latest.hum>thresholds.maxHum)tips.push('A umidade está fora da faixa configurada. Confira a tendência no histórico.');
-   if(!tips.length)tips.push('A temperatura e a umidade estão dentro dos seus limites configurados. Continue acompanhando as medições.');
-   return say(tips.join(' ')+' Base: leitura de '+stamp+'.');
+   return say(explainEnvironment());
   }
   if(/confort/.test(text)&&/significa|calcul|o\s*que|oque/.test(text))return say('Conforto é uma pontuação estimada de 0 a 100 usando temperatura e umidade. Quanto maior, mais próximas das faixas de referência do painel estão as condições. Não é uma medição direta de sensação térmica nem uma avaliação individual de saúde.');
   if(/umidade/.test(text)&&/significa|o\s*que|oque/.test(text))return say('Umidade relativa indica, em porcentagem, quanto vapor de água existe no ar em relação ao máximo que ele comporta naquela temperatura. O sensor da estação mede esse valor.');
   if(/sensor|dht11|esp32|firebase|firestore|de onde.*dados/.test(text))return say('O DHT11 mede temperatura e umidade. O ESP32 envia os dados pela internet e o Firebase os armazena. O site lê essas medições para montar gráficos, histórico e alertas.');
   if(/offline|sem conexao|sem dados|nao atualiza|parou/.test(text))return say('Offline significa que o painel não recebeu uma leitura recente ou não conseguiu acessar os dados. Confira a alimentação e o Wi-Fi da estação, a internet do aparelho e o horário da última medição. O painel considera a estação sem leitura recente após dois minutos.');
-  if(/limites|configurar.*alert|personalizar.*alert/.test(text))return say('Em Alertas → Limites do painel você define temperatura mínima e máxima, faixa de umidade e condições destacadas. As preferências ficam salvas neste navegador.');
+  if(/limites|configurar.*alert|personalizar.*alert/.test(text))return say('Em Alertas → O que merece sua atenção? você define temperatura mínima e máxima, faixa de umidade e condições destacadas. As preferências ficam salvas neste navegador.');
   if(/export|baixar.*dados|csv/.test(text))return say('Abra Dados, escolha o dia e toque em Exportar dia (CSV). A exportação usa as leituras do dia selecionado e o filtro de busca aplicado.');
   if(/historico|dados.*dia|dias.*semana/.test(text))return say('Na página Dados, selecione um dia da semana ou use o campo de data. Você pode voltar semanas, buscar horários e carregar mais leituras. Os horários seguem Canto do Buriti, UTC−3.');
   if(/localiza|onde fica|mapa/.test(text))return say('A estação fica em Canto do Buriti, Piauí. O mapa ajuda a localizar a região; não é um mapa oficial de focos de incêndio. Permitir a localização do aparelho não muda a origem das medições da estação.');
@@ -590,9 +612,10 @@ start();
   if(!text){answer('Digite uma pergunta ou toque em Falar com Lumi.');return;}
   if(/\b(cancele|cancelar|pare|parar)\b|\bnao\s+(abra|abrir|va|navegue)/.test(text)){answer('Tudo bem. Não vou navegar.');return;}
   const pages=[[/\b(inicio|dashboard|principal)\b/,'dashboard'],[/\b(dados|historico)\b/,'dados'],[/alert/,'alertas'],[/analis/,'analises'],[/\bsobre\b|como funciona a estacao/,'sobre']].filter(([pattern])=>pattern.test(text)).map(([,page])=>page);
-  const explain=/explic|como funciona|o que (e|sao)|ajud/.test(text), navigation=/\b(abrir|abra|abre|ir|va|ver|mostrar|mostre|consultar|leve)\b/.test(text);
+  const explain=/expli|como funciona|o que (e|sao)|ajud/.test(text), navigation=/\b(abrir|abra|abre|ir|va|ver|mostrar|mostre|consultar|leve)\b/.test(text);
   if(!navigation&&siteAnswer(text))return;
   if(pages.length>1){answer('Você quer Início, Dados, Alertas, Análises ou Sobre? Escolha uma página por vez.');return;}
+  if(!navigation&&/expli.*(temperatura|umidade|conforto|dados|medicoes|grafico)|analise.*(ambiente|dados)/.test(text)){answer(explainEnvironment());return;}
   if(explain){answer(descriptions[pages[0]||location.hash.slice(1)]||descriptions.dashboard);return;}
   if(/temperatura|graus|umidade|conforto|calor|frio/.test(text)&&!navigation){measurement(text);return;}
   const page=pages[0];
