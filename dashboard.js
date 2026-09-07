@@ -148,7 +148,7 @@ function interfaceIcon(name){ return `<svg class="ui-icon" viewBox="0 0 24 24" f
 
 
 // Painel da estação
-const firebaseConfig = { apiKey: "AIzaSyBWDcTMNN4aUYywXhgUw_gJzlkB45F1foM", authDomain: "climat-7c7f7.firebaseapp.com", projectId: "climat-7c7f7", storageBucket: "climat-7c7f7.firebasestorage.app", appId: "1:267164246485:web:a72b776b880ba5b8b71d5c" };
+const firebaseConfig = { apiKey: "AIzaSyBWDcTMNN4aUYywXhgUw_gJzlkB45F1foM", authDomain: "climat-7c7f7.firebaseapp.com", projectId: "climat-7c7f7", messagingSenderId: "267164246485", storageBucket: "climat-7c7f7.firebasestorage.app", appId: "1:267164246485:web:a72b776b880ba5b8b71d5c" };
 
 
 const MAX_POINTS = 20;
@@ -187,6 +187,7 @@ function isSensorOnline(){
 }
 
 function updateSensorStatus(){
+  updateRecentInsights();
   updateFreshness();
   if (!latest || !isSensorOnline()) {
     $('#statusText').textContent = 'Estação offline';
@@ -314,6 +315,42 @@ function updateCharts(){
 
 }
 
+// Resumo das amostras recentes; não representa previsão nem tempo em cada faixa.
+function summarizeRecentReadings(items, limits, now = Date.now()){
+ const valid=items.filter(r=>Number.isFinite(r.temp)&&r.temp>=-40&&r.temp<=80&&Number.isFinite(r.hum)&&r.hum>=0&&r.hum<=100&&Number.isFinite(r.date?.getTime())&&r.date.getTime()<=now+30000).sort((a,b)=>a.date-b.date);
+ if(!valid.length)return null;
+ const end=valid[valid.length-1], samples=valid.filter(r=>end.date-r.date<=3600000).slice(-100), first=samples[0];
+ const range=samples.map(r=>r.temp), comparable=end.date>first.date;
+ const within=samples.filter(r=>r.temp>=(limits.minTemp??18)&&r.temp<=limits.maxTemp&&r.hum>=limits.minHum&&r.hum<=limits.maxHum).length;
+ return {end,first,count:samples.length,stale:now-end.date>SENSOR_TIMEOUT_MS,tempDelta:comparable?end.temp-first.temp:null,humDelta:comparable?end.hum-first.hum:null,min:Math.min(...range),max:Math.max(...range),within:Math.round(within/samples.length*100),gaps:samples.some((r,i)=>i>0&&r.date-samples[i-1].date>600000)};
+}
+function updateRecentInsights(){
+ const result=summarizeRecentReadings(readings,thresholds);
+ $('#recentInsights').hidden=!result;
+ if(!result){$('#analysisTitle').textContent='Aguardando dados';$('#analysisText').textContent='As análises aparecem quando a estação enviar medições válidas.';return;}
+ const {end,first,count,stale,tempDelta,humDelta,min,max,within,gaps}=result;
+ const fmt=n=>n.toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1});
+ const delta=(value,unit)=>value===null?'Mais dados necessários':(Math.abs(value)<0.05?'Sem variação':(value>0?'↑ +':'↓ −')+fmt(Math.abs(value))+' '+unit);
+ const comfort=comfortScore(end.temp,end.hum);
+ $('#analysisTitle').textContent=stale?'Últimas condições registradas':comfort>=75?'Ambiente confortável':comfort>=50?'Ambiente moderado':'Ambiente desconfortável';
+ $('#analysisText').textContent='Última medição: '+fmt(end.temp)+' °C e '+fmt(end.hum)+'% de umidade.';
+ $('#insightTempTrend').textContent=delta(tempDelta,'°C');
+ $('#insightHumTrend').textContent=delta(humDelta,'p.p.');
+ $('#insightRange').textContent=fmt(min)+' → '+fmt(max)+' °C';
+ $('#insightWithin').textContent=within+'%';
+ const observations=[];
+ if(end.temp>thresholds.maxTemp)observations.push('Temperatura acima do limite do painel.');
+ else if(end.temp<(thresholds.minTemp??18))observations.push('Temperatura abaixo do limite do painel.');
+ if(end.hum<thresholds.minHum)observations.push('Umidade abaixo da faixa configurada.');
+ else if(end.hum>thresholds.maxHum)observations.push('Umidade acima da faixa configurada.');
+ if(!observations.length)observations.push('A última leitura está dentro das faixas de temperatura e umidade configuradas.');
+ $('#insightInterpretation').textContent=stale?'Sem dados recentes: este resumo não confirma as condições de agora.':observations.join(' ');
+ $('#insightInterpretation').classList.toggle('is-stale',stale);
+ const time=d=>d.toLocaleTimeString('pt-BR',{timeZone:'America/Fortaleza',hour:'2-digit',minute:'2-digit',second:'2-digit'});
+ const date=end.date.toLocaleDateString('pt-BR',{timeZone:'America/Fortaleza'});
+ $('#insightScope').textContent=count+' leitura'+(count===1?'':'s')+' · '+date+' · '+time(first.date)+'–'+time(end.date)+' (UTC−3). Janela de até 1 hora, limitada às 100 últimas amostras.'+(gaps?' Há intervalos de mais de 10 minutos sem amostras.':'');
+}
+
 function updateCurrent(){
   if (!latest) return;
   const { temp, hum, date } = latest;
@@ -336,10 +373,8 @@ function updateCurrent(){
   $('#statusText').textContent = 'Estação online';
   $('#statusDot').style.background = 'var(--teal)';
   $('#connPill').innerHTML = '<i></i> conectado';
-  $('#analysisTitle').textContent = comfort >= 75 ? 'Ambiente confortável' : comfort >= 50 ? 'Ambiente moderado' : 'Ambiente desconfortável';
-  $('#analysisText').textContent = `A temperatura está em ${temp.toFixed(1)}°C e a umidade em ${Math.round(hum)}%.`;
-  $('#tempDelta').textContent = temp > 30 ? 'acima do ideal' : 'faixa observada';
-  $('#humDelta').textContent = hum > 70 || hum < 30 ? 'fora do ideal' : 'faixa observada';
+  $('#tempDelta').textContent = temp >= 28 ? 'Calor' : temp < 18 ? 'Frio' : 'Temperatura amena';
+  $('#humDelta').textContent = hum < 40 ? 'Baixa umidade' : hum > 70 ? 'Alta umidade' : 'Umidade moderada';
   updateAlerts();
   updateStats();
   updateTable();
@@ -484,6 +519,7 @@ function start(){
     }).filter(item => Number.isFinite(item.temp) && item.temp>=-40 && item.temp<=80 && Number.isFinite(item.hum) && item.hum>=0 && item.hum<=100 && Number.isFinite(item.date.getTime()) && item.date.getTime()<=Date.now()+30000).sort((a,b)=>b.date-a.date);
     latest = readings[0];
     lastReadingAt = latest?.date || null;
+    updateRecentInsights();
     if (latest) {
       updateCharts();
       updateCurrent();
@@ -581,15 +617,33 @@ start();
 })();
 
 (function setupLimits(){
- const defaults={minTemp:18,maxTemp:30,minHum:30,maxHum:70,heat:true,cold:true,humidity:true};
+ const defaults={minTemp:18,maxTemp:30,minHum:30,maxHum:70,heat:true,cold:true,humidity:true,offline:true};
  for(const [key,value] of Object.entries(defaults)){const input=document.getElementById('limit-'+key);if(typeof value==='boolean')input.checked=thresholds[key]??value;else input.value=thresholds[key]??value;}
  document.getElementById('limitsForm').addEventListener('submit',event=>{
   event.preventDefault();const next=Object.fromEntries(Object.entries(defaults).map(([key,value])=>{const input=document.getElementById('limit-'+key);return [key,typeof value==='boolean'?input.checked:Number(input.value)];}));
   const feedback=document.getElementById('limitsFeedback');
   if(next.minTemp>=next.maxTemp||next.minHum>=next.maxHum){feedback.textContent='O mínimo deve ser menor que o máximo.';return;}
-  try{localStorage.setItem('imnvlab-thresholds',JSON.stringify(next));thresholds=next;if(latest)updateOverview();feedback.textContent='Limites salvos neste navegador.';}catch{feedback.textContent='Não foi possível salvar os limites neste navegador.';}
+  try{localStorage.setItem('imnvlab-thresholds',JSON.stringify(next));thresholds=next;if(latest)updateOverview();feedback.textContent='Limites salvos neste navegador.';window.dispatchEvent(new Event('limits-saved'));}catch{feedback.textContent='Não foi possível salvar os limites neste navegador.';}
  });
 })();
-// Remove os cadastros locais do recurso descontinuado.
-try{for(const key of Object.keys(localStorage))if(key.startsWith('imnvlab-push-'))localStorage.removeItem(key);indexedDB.deleteDatabase('firebase-messaging-database');}catch{}
-if('serviceWorker' in navigator)navigator.serviceWorker.register('./service-worker.js',{scope:'./',updateViaCache:'none'}).catch(error=>console.warn('Cache offline indisponível:',error));
+// Notificações: uma inscrição por aparelho e os mesmos limites do painel.
+(function setupDevicePush(){
+ const el=id=>document.getElementById(id), enabledKey='imnvlab-device-notices';
+ document.querySelector('.device-bell').innerHTML=interfaceIcon('bell');
+ let active=false,busy=false,messaging,worker;
+ const supported=window.isSecureContext&&'Notification' in window&&'PushManager' in window&&'serviceWorker' in navigator;
+ const feedback=text=>el('deviceFeedback').textContent=text;
+ function render(){el('deviceStatus').textContent=active?'Ativado neste aparelho':localStorage.getItem(enabledKey)==='true'?(busy?'Conferindo cadastro':'Precisa reconectar'):'Desativado';el('deviceStatus').classList.toggle('active',active);el('deviceEnable').hidden=active;el('deviceTest').hidden=!active;el('deviceDisable').hidden=!active&&localStorage.getItem(enabledKey)!=='true';for(const id of ['deviceEnable','deviceTest','deviceDisable'])el(id).disabled=busy||!supported;}
+ async function call(name,data={}){await new Promise(resolve=>{const stop=firebase.auth().onAuthStateChanged(()=>{stop();resolve();});});if(!firebase.auth().currentUser)await firebase.auth().signInAnonymously();const token=await firebase.auth().currentUser.getIdToken();const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),20000);try{const response=await fetch('https://southamerica-east1-climat-7c7f7.cloudfunctions.net/'+name,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({data}),signal:controller.signal});const result=await response.json();if(!response.ok||result.error)throw Error(result.error?.message||'Serviço indisponível');return result.result;}finally{clearTimeout(timer);}}
+ const registration=navigator.serviceWorker?.register('./service-worker.js',{scope:'./',updateViaCache:'none'}).then(async reg=>{const pending=reg.installing||reg.waiting;if(pending&&pending.state!=='activated')await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Atualize a página para concluir a instalação.')),20000);const changed=()=>{if(pending.state==='activated'){clearTimeout(timer);pending.removeEventListener('statechange',changed);resolve();}else if(pending.state==='redundant'){clearTimeout(timer);reject(Error('Falha ao instalar o receptor.'));}};pending.addEventListener('statechange',changed);changed();});worker=reg;return reg;});
+ registration?.catch(()=>{});
+ async function register(){await registration;if(!worker?.active)throw Error('Receptor indisponível. Recarregue o site.');messaging ||= firebase.messaging();const token=await messaging.getToken({vapidKey:'BNEXQLVGXD7XSZ3dsOln7xqJkgqxDpb5OxwLv54CrQnYjEjvwq4zEUhFly4V2rh7i2MQYFDYU19GDyRPZgojIas',serviceWorkerRegistration:worker});if(!token)throw Error('O navegador não criou a inscrição.');await call('registerPush',{token,settings:{...thresholds,recovery:false,offline:thresholds.offline!==false}});localStorage.setItem(enabledKey,'true');active=true;}
+ async function run(action){if(busy)return;busy=true;render();try{await action();}catch(error){feedback('Não foi possível concluir: '+(error.name==='AbortError'?'o serviço demorou para responder. Tente novamente.':error.message));}finally{busy=false;render();}}
+ el('deviceEnable').addEventListener('click',()=>{if(!supported)return;const permission=Notification.requestPermission();run(async()=>{if(await permission!=='granted')throw Error('permita notificações nas configurações deste site.');await register();feedback('Ativado. Envie um teste para conferir a entrega neste aparelho.');});});
+ el('deviceTest').addEventListener('click',()=>run(async()=>{await call('testPush');feedback('Teste aceito pelo Firebase. Confira se o aviso apareceu neste aparelho.');}));
+ el('deviceDisable').addEventListener('click',()=>run(async()=>{await call('disablePush');active=false;localStorage.removeItem(enabledKey);await messaging?.deleteToken();feedback('Desativado neste aparelho.');}));
+ window.addEventListener('limits-saved',()=>{if(active)run(async()=>{await register();feedback('Limites do painel e das notificações sincronizados.');});});
+ if(supported){try{messaging=firebase.messaging();messaging.onMessage(payload=>{if(active)registration.then(reg=>reg.active?.postMessage({type:'SITE_NOTICE',payload})).catch(()=>{});});if(localStorage.getItem(enabledKey)==='true'&&Notification.permission==='granted')run(async()=>{await register();feedback('Ativado com os limites salvos neste navegador.');});}catch(error){feedback('Notificações indisponíveis neste navegador.');}}
+ else feedback('Este navegador não oferece push aqui. No iPhone/iPad, abra o site pelo ícone da Tela de Início.');
+ render();
+})();
