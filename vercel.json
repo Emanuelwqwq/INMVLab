@@ -1,6 +1,6 @@
 {
   "framework": null,
-  "buildCommand": "node -e \"const fs=require('fs'); fs.mkdirSync('public',{recursive:true}); for(const f of ['index.html','styles.css','dashboard.js','explorer.js','service-worker.js','manifest.json','marca-ceti.jpeg','lumi.png','campus-banner.png']) fs.copyFileSync(f,'public/'+f)\"",
+  "buildCommand": "node -e \"f=require('fs');f.mkdirSync('public',{recursive:true});for(p of 'index.html styles.css dashboard.js explorer.js service-worker.js manifest.json marca-ceti.jpeg lumi.png campus-banner.png'.split(' '))f.copyFileSync(p,'public/'+p)\"",
   "outputDirectory": "public",
   "headers": [
     { "source": "/service-worker.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
