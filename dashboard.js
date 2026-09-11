@@ -537,9 +537,20 @@ start();
  const dateKey=date=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Fortaleza',year:'numeric',month:'2-digit',day:'2-digit'}).format(date);
  const descriptions={dashboard:'No início você encontra temperatura, umidade e conforto. Os valores são da última medição, cujo horário aparece no painel.',dados:'Em Dados, escolha um dia da semana ou uma data. Você pode buscar um horário e exportar as medições.',alertas:'Alertas mostra as condições que precisam de atenção. Em Limites do painel você escolhe as faixas de temperatura e umidade.',analises:'Análises consulta todas as medições registradas hoje, no horário da estação. A média é por leitura e não estima os períodos sem dados.',sobre:'A estação usa um sensor para medir temperatura e umidade. O ESP32 envia as leituras pela internet para o site.'};
  let recognition=null, timer, session=0;
- function stopListening(){session++;clearTimeout(timer);const old=recognition;recognition=null;if(old){old.onend=old.onerror=old.onresult=null;try{old.abort();}catch{}}listen.textContent=Recognition?'Falar com Lumi':'Voz indisponível';}
- function answer(text,read=true){el('guideReply').textContent=text;window.speechSynthesis?.cancel();if(read&&el('guideSpeak').checked&&'speechSynthesis' in window){stopListening();const utterance=new SpeechSynthesisUtterance(text);utterance.lang='pt-BR';speechSynthesis.speak(utterance);}}
- function close(){stopListening();window.speechSynthesis?.cancel();panel.hidden=true;toggle.setAttribute('aria-expanded','false');toggle.focus();}
+ function stopListening(){session++;clearTimeout(timer);const old=recognition;recognition=null;if(old){old.onend=old.onerror=old.onresult=null;try{old.abort();}catch{}}listen.textContent=Recognition?'Falar com Lumi':'Voz indisponível';if(panel.dataset.state==='listening')panel.dataset.state='idle';}
+ let speechVersion=0,voiceTimer,voices=[];
+ const voiceSelect=el('lumiVoice'),voiceStatus=el('lumiVoiceStatus');
+ let preferredVoice='';try{preferredVoice=localStorage.getItem('lumi-voice')||'';el('guideSpeak').checked=localStorage.getItem('lumi-read-aloud')==='true';}catch{}
+ function stopSpeaking(){speechVersion++;clearTimeout(voiceTimer);window.speechSynthesis?.cancel();panel.dataset.state='idle';}
+ function speechText(text){return text.replace(/[\p{Extended_Pictographic}\uFE0F\u200D]/gu,'').replace(/(\d)\.(\d)/g,'$1,$2').replace(/(\d+(?:,\d+)?)\s*°C/g,'$1 graus Celsius').replace(/(\d+(?:,\d+)?)%/g,'$1 por cento').replace(/(\d+)\/100/g,'$1 de 100').replace(/(\d{1,2}):(\d{2})(?::\d{2})?/g,(_,h,m)=>h+' horas'+(m==='00'?'':' e '+Number(m)+' minutos')).replace(/UTC[−-]3/g,'horário da estação').replace(/[↗→]/g,' ').replace(/\s+/g,' ').trim();}
+ function populateVoices(){if(!window.speechSynthesis)return;voices=speechSynthesis.getVoices().filter(v=>/^pt(?:[-_]|$)/i.test(v.lang));voices.sort((a,b)=>{const score=v=>(/^pt[-_]BR$/i.test(v.lang)?10:0)+(/natural|neural|francisca|maria|luciana|google/i.test(v.name)?2:0);return score(b)-score(a);});voiceSelect.replaceChildren(new Option('Escolher automaticamente',''));for(const voice of voices)voiceSelect.add(new Option(voice.name+' · '+voice.lang,voice.voiceURI));voiceSelect.value=voices.some(v=>v.voiceURI===preferredVoice)?preferredVoice:'';voiceStatus.textContent=voices.length?'Escolha uma voz e toque em Ouvir exemplo.':'A lista de vozes em português ainda não está disponível. Vou pedir ao navegador a voz em português do Brasil.';}
+ function speak(text){stopSpeaking();if(!window.speechSynthesis)return;stopListening();const version=speechVersion,parts=speechText(text).match(/[^.!?]+[.!?]*/g)||[];let index=0;const voice=voices.find(v=>v.voiceURI===voiceSelect.value)||voices[0];function next(){if(version!==speechVersion||panel.hidden||document.hidden)return;if(index>=parts.length){panel.dataset.state='idle';voiceStatus.textContent='Prontinho. Pode me fazer outra pergunta.';return;}const utterance=new SpeechSynthesisUtterance(parts[index++].trim());utterance.lang=voice?.lang||'pt-BR';if(voice)utterance.voice=voice;utterance.rate=.96;utterance.pitch=1.06;utterance.volume=1;utterance.onstart=()=>{if(version===speechVersion){panel.dataset.state='speaking';voiceStatus.textContent='Lumi está falando…';}};utterance.onend=()=>{if(version===speechVersion)voiceTimer=setTimeout(next,130);};utterance.onerror=event=>{if(version===speechVersion){panel.dataset.state='idle';voiceStatus.textContent=event.error==='not-allowed'?'Toque em Ouvir exemplo para liberar a voz neste navegador.':'Não consegui falar agora. A resposta continua disponível em texto.';}};speechSynthesis.speak(utterance);}next();}
+ function answer(text,read=true){el('guideReply').textContent=text;el('guideReply').scrollTop=0;stopSpeaking();if(read&&el('guideSpeak').checked)speak(text);}
+ function close(){stopListening();stopSpeaking();panel.hidden=true;toggle.setAttribute('aria-expanded','false');toggle.focus();}
+ function friendlyObservation(r){const parts=[];if(r.temp>=28)parts.push('Está quentinho perto da estação agora.');else if(r.temp<18)parts.push('Está mais friozinho perto da estação agora.');else parts.push('A temperatura está mais amena perto da estação.');if(r.hum<40)parts.push('O ar também está mais seco.');else if(r.hum>70)parts.push('O ar está bem úmido.');return parts.join(' ');}
+ if('speechSynthesis' in window){populateVoices();speechSynthesis.addEventListener('voiceschanged',populateVoices);}else{el('guideSpeak').disabled=true;el('guideSpeak').checked=false;voiceSelect.disabled=true;el('lumiVoicePreview').disabled=true;voiceStatus.textContent='Este navegador não oferece leitura em voz alta. Podemos conversar por texto.';}
+ voiceSelect.addEventListener('change',()=>{preferredVoice=voiceSelect.value;try{localStorage.setItem('lumi-voice',preferredVoice);}catch{}stopSpeaking();});el('lumiVoicePreview').addEventListener('click',()=>speak('Oi! Eu sou a Lumi, sua assistente virtual no projeto. Que bom ter você por aqui! Vamos descobrir juntos o que o ambiente está contando?'));el('lumiVoiceStop').addEventListener('click',()=>{stopSpeaking();voiceStatus.textContent='Voz pausada. Continuamos por texto quando quiser.';});
+
  const Recognition=window.SpeechRecognition||window.webkitSpeechRecognition;
  function environmentAdvice(current){
   const score=comfortScore(current.temp,current.hum),parts=[];
@@ -557,7 +568,7 @@ start();
   if(!summary)return 'Ainda não tenho medições válidas para interpretar. Aguarde a estação ou abra Dados para consultar o histórico.';
   const current=summary.end,stamp=current.date.toLocaleString('pt-BR',{timeZone:'America/Fortaleza'});
   if(summary.stale)return 'A última medição é de '+stamp+' e está desatualizada. Não posso afirmar como o ambiente está agora. Confira a alimentação e o Wi-Fi da estação; em Dados você pode consultar o histórico.';
-  let result='Na leitura de '+stamp+': '+current.temp.toLocaleString('pt-BR')+' °C e '+current.hum.toLocaleString('pt-BR')+'% de umidade. '+environmentAdvice(current);
+  let result='Vamos olhar essas pistas do ambiente! 🌿 A temperatura está em '+current.temp.toLocaleString('pt-BR')+' °C, e a umidade em '+current.hum.toLocaleString('pt-BR')+'%. '+friendlyObservation(current)+'\n\n'+environmentAdvice(current)+' Leitura de '+stamp+'.';
   if(summary.tempDelta!==null){const delta=summary.tempDelta;result+=' Nas '+summary.count+' amostras recentes, a temperatura '+(Math.abs(delta)<0.05?'não mudou entre a primeira e a última leitura':(delta>0?'subiu ':'caiu ')+Math.abs(delta).toLocaleString('pt-BR',{maximumFractionDigits:1})+' °C entre a primeira e a última leitura')+'. Isso descreve o intervalo observado, não uma previsão. Consulte o gráfico em Análises para explorar o dia.';}
   return result;
  }
@@ -565,7 +576,7 @@ start();
   if(/amanha|previsao/.test(text)){answer('A estação mede o ambiente; não tenho previsão do tempo para amanhã. Posso informar a última leitura de hoje.');return;}
   if(/ontem|semana|\d{1,2}[/-]\d/.test(text)){answer('Para outra data, consulte Dados. Posso abrir “dados de ontem”. Aqui respondo sobre as leituras recentes de hoje.');return;}
   const today=readings.filter(r=>Number.isFinite(r.date?.getTime())&&dateKey(r.date)===dateKey(new Date())&&r.date.getTime()<=Date.now()+30000).sort((a,b)=>b.date-a.date);
-  if(!today.length){answer('Ainda não tenho medições de hoje disponíveis. Não vou usar uma leitura antiga como se fosse atual. Consulte Dados ou aguarde a estação.');return;}
+  if(!today.length){answer('Quero te contar direitinho, mas ainda não chegaram medições de hoje. Podemos explorar outro dia em Dados enquanto esperamos a estação.');return;}
   const current=today[0], time=current.date.toLocaleTimeString('pt-BR',{timeZone:'America/Fortaleza',hour:'2-digit',minute:'2-digit'}), fmt=n=>n.toLocaleString('pt-BR',{maximumFractionDigits:1});
   const temperature=/temperatura|graus|calor|frio/.test(text), humidity=/umidade/.test(text), comfort=/confort/.test(text);
   let result;
@@ -573,9 +584,9 @@ start();
    if(comfort){answer('Posso informar o conforto da última leitura. Para médias, pergunte sobre temperatura ou umidade.');return;}
    const summarize=(key,label,unit)=>{const values=today.map(r=>r[key]);const value=/maxima|maior/.test(text)?Math.max(...values):/minima|menor/.test(text)?Math.min(...values):values.reduce((a,b)=>a+b,0)/values.length;return `${label}: ${fmt(value)} ${unit}`;};
    result=[temperature?summarize('temp','Temperatura','°C'):null,humidity?summarize('hum','Umidade','%'):null].filter(Boolean).join('. ')+`. Cálculo sobre ${today.length} leituras recentes de hoje carregadas no painel, não necessariamente o dia inteiro.`;
-  }else result=`Na última leitura de hoje, às ${time} (horário da estação): `+[temperature?`temperatura de ${fmt(current.temp)} °C`:null,humidity?`umidade de ${fmt(current.hum)}%`:null,comfort?`conforto de ${comfortScore(current.temp,current.hum)}/100`:null].filter(Boolean).join('; ')+'.';
+  }else {const fresh=Date.now()-current.date.getTime()<=SENSOR_TIMEOUT_MS;result=(fresh?'Vamos conferir! 🌿 Às ':'Encontrei uma leitura de hoje, às ')+time+': '+[temperature?`a temperatura está em ${fmt(current.temp)} °C`:null,humidity?`a umidade está em ${fmt(current.hum)}%`:null,comfort?`o conforto estimado é ${comfortScore(current.temp,current.hum)}/100`:null].filter(Boolean).join(' e ')+'.';if(!fresh)result=result.replaceAll('está em','estava em').replace('estimado é','estimado era');}
   if(Date.now()-current.date.getTime()>SENSOR_TIMEOUT_MS)result+=' A estação está sem leitura recente; esses valores não confirmam as condições de agora.';
-  if(Date.now()-current.date.getTime()<=SENSOR_TIMEOUT_MS&&!/media|maxima|minima|maior|menor/.test(text))result+=' '+environmentAdvice(current);
+  if(Date.now()-current.date.getTime()<=SENSOR_TIMEOUT_MS&&!/media|maxima|minima|maior|menor/.test(text))result+=' '+friendlyObservation(current)+' Quer entender melhor? Me peça uma dica sobre o ambiente.';
   answer(result);
  }
  function siteAnswer(text){
@@ -606,14 +617,14 @@ start();
   if(/export|baixar.*dados|csv/.test(text))return say('Abra Dados, escolha o dia e toque em Exportar dia (CSV). A exportação usa as leituras do dia selecionado e o filtro de busca aplicado.');
   if(/historico|dados.*dia|dias.*semana/.test(text))return say('Na página Dados, selecione um dia da semana ou use o campo de data. Você pode voltar semanas, buscar horários e carregar mais leituras. Os horários seguem Canto do Buriti, UTC−3.');
   if(/localiza|onde fica|mapa/.test(text))return say('A estação fica em Canto do Buriti, Piauí. O mapa ajuda a localizar a região; não é um mapa oficial de focos de incêndio. Permitir a localização do aparelho não muda a origem das medições da estação.');
-  if(/lumi|quem e voce|o que voce faz/.test(text))return say('Sou a Lumi, a curiosa da estação IMNVLab! Adoro explicar o que os números estão contando. Posso interpretar as medições, sugerir cuidados e te acompanhar pelas páginas. Uso as informações do projeto e regras locais; quando não tenho dados, conto isso para você.');
+  if(/lumi|quem e voce|o que voce faz/.test(text))return say('Sou a Lumi, a assistente virtual do IMNVLab! 🌿 Tenho jeitinho de estudante curiosa e adoro descobrir o que os números estão contando. Posso interpretar as medições, sugerir cuidados e te acompanhar pelas páginas. Uso as informações do projeto e regras locais; quando não tenho dados, conto isso para você.');
   return false;
  }
  function command(raw){
   stopListening();const text=normalize(raw);
   if(!text){answer('Estou por aqui! Escreva uma pergunta ou toque em Falar com Lumi.');return;}
-  if(/^(oi|ola|bom dia|boa tarde|boa noite|e ai|oi lumi|ola lumi)[.!? ]*$/.test(text)){answer('Oi! Que bom ter companhia na estação. Sou a Lumi: curiosa por natureza e fã de transformar números em descobertas. Quer saber como está o ambiente ou explorar as leituras?');return;}
-  if(/^(obrigad[oa]|valeu|obrigad[oa] lumi|muito obrigad[oa])[.!? ]*$/.test(text)){answer('Por nada! Pequenas observações fazem grandes descobertas. Quando quiser, seguimos explorando o ambiente juntos.');return;}
+  if(/^(oi|ola|bom dia|boa tarde|boa noite|e ai|oi lumi|ola lumi)[.!? ]*$/.test(text)){answer('Oi! Que bom que você veio! 🌿 Eu sou a Lumi, sua assistente virtual aqui no projeto. Adoro uma boa pergunta. Vamos ver como está o ambiente ou descobrir algo novo?');return;}
+  if(/^(obrigad[oa]|valeu|obrigad[oa] lumi|muito obrigad[oa])[.!? ]*$/.test(text)){answer('Imagina! Adorei ajudar. 💜 Se surgir outra dúvida, é só me chamar. A gente descobre junto!');return;}
   if(/^(tchau|ate mais|ate logo)[.!? ]*$/.test(text)){answer('Até mais! Vou ficar por aqui. Quando voltar, podemos conferir as novas medições.');return;}
   if(/\b(cancele|cancelar|pare|parar)\b|\bnao\s+(abra|abrir|va|navegue)/.test(text)){answer('Tudo bem. Não vou navegar.');return;}
   const pages=[[/\b(inicio|dashboard|principal)\b/,'dashboard'],[/\b(dados|historico)\b/,'dados'],[/alert/,'alertas'],[/analis/,'analises'],[/\bsobre\b|como funciona a estacao/,'sobre'],[/curiosidade|entenda o clima/,'curiosidades'],[/explorar|mais descobertas/,'explorar']].filter(([pattern])=>pattern.test(text)).map(([,page])=>page);
@@ -632,17 +643,17 @@ start();
  }
  toggle.addEventListener('click',()=>{if(!panel.hidden)return close();panel.hidden=false;toggle.setAttribute('aria-expanded','true');field.focus();});el('guideClose').addEventListener('click',close);
  el('guideForm').addEventListener('submit',event=>{event.preventDefault();command(field.value);});document.addEventListener('click',event=>{const button=event.target.closest('[data-guide]');if(!button)return;panel.hidden=false;toggle.setAttribute('aria-expanded','true');command(button.dataset.guide);});
- el('guideSpeak').addEventListener('change',()=>{if(!el('guideSpeak').checked)window.speechSynthesis?.cancel();});
+ el('guideSpeak').addEventListener('change',()=>{try{localStorage.setItem('lumi-read-aloud',String(el('guideSpeak').checked));}catch{}if(!el('guideSpeak').checked)stopSpeaking();});
  if(!Recognition){listen.disabled=true;listen.textContent='Voz indisponível';}
  else listen.addEventListener('click',()=>{
   if(recognition){stopListening();answer('Escuta cancelada.',false);return;}
-  window.speechSynthesis?.cancel();const id=++session;recognition=new Recognition();recognition.lang='pt-BR';recognition.continuous=false;recognition.interimResults=false;
+  stopSpeaking();panel.dataset.state='listening';const id=++session;recognition=new Recognition();recognition.lang='pt-BR';recognition.continuous=false;recognition.interimResults=false;
   recognition.onresult=event=>{if(id!==session)return;const transcript=event.results[0][0].transcript;stopListening();field.value=transcript;answer('Ouvi: “'+transcript+'”. Corrija se precisar e toque em Enviar para confirmar.',false);field.focus();};
   recognition.onerror=event=>{if(id!==session)return;stopListening();answer(event.error==='not-allowed'?'O microfone foi bloqueado. Permita o acesso nas configurações do navegador ou digite sua pergunta.':'Não consegui reconhecer sua fala. Tente novamente ou digite a pergunta.',false);};
   recognition.onend=()=>{if(id!==session)return;stopListening();answer('Não recebi uma frase. Toque para tentar novamente ou digite.',false);};
   try{recognition.start();listen.textContent='Cancelar escuta';answer('Estou ouvindo. Você terá a chance de revisar a frase.',false);timer=setTimeout(()=>{if(id!==session)return;stopListening();answer('A escuta terminou após 12 segundos. Tente novamente ou digite.',false);},12000);}catch{stopListening();answer('Não foi possível iniciar o microfone. Digite sua pergunta ou tente novamente.',false);}
  });
- window.addEventListener('keydown',event=>{if(event.key==='Escape'&&!panel.hidden)close();});document.addEventListener('visibilitychange',()=>{if(document.hidden){stopListening();window.speechSynthesis?.cancel();}});
+ window.addEventListener('keydown',event=>{if(event.key==='Escape'&&!panel.hidden)close();});document.addEventListener('visibilitychange',()=>{if(document.hidden){stopListening();stopSpeaking();}});
 })();
 
 (function setupLimits(){

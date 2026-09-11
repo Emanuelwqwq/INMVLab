@@ -1,8 +1,16 @@
 {
   "framework": null,
-  "buildCommand": "node -e \"f=require('fs');f.mkdirSync('public',{recursive:true});for(p of 'index.html styles.css dashboard.js explorer.js service-worker.js manifest.json marca-ceti.jpeg lumi.png campus-banner.png'.split(' '))f.copyFileSync(p,'public/'+p)\"",
+  "buildCommand": "node -e \"f=require('fs');for(p of 'index.html styles.css dashboard.js explorer.js service-worker.js manifest.json marca-ceti.jpeg lumi.png assets'.split(' '))f.cpSync(p,'public/'+p,{recursive:true})\"",
   "outputDirectory": "public",
   "headers": [
-    { "source": "/service-worker.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
+    {
+      "source": "/service-worker.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache"
+        }
+      ]
+    }
   ]
 }

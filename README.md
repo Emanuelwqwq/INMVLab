@@ -67,3 +67,20 @@ O histórico de condições é reconstruído com os limites atuais, não represe
 Todos os períodos usam America/Fortaleza (UTC−3). Médias são calculadas por leitura; não preenchem lacunas. Consultas mensais e semanais têm limite de 3.000 documentos por formato de timestamp, cache em memória de 60 segundos e prazo de 20 segundos. A interface identifica resultados limitados. Os dados continuam vindo do Firebase existente, sem valores demonstrativos em produção.
 
 Nenhuma biblioteca ou arquivo público adicional nesta etapa; permanecem 9 arquivos de publicação. Cache do aplicativo v29. Alterações locais prontas para envio ao GitHub; nenhuma publicação automática foi feita nesta etapa.
+
+## Banner e Lumi · v30
+
+- Banner com seis ilustrações fornecidas pelo usuário: fachada, entrada, biblioteca, sala, informática e xadrez. A entrada duplicada foi utilizada apenas uma vez. Os originais foram copiados sem edição para assets/escola-*.jpeg.
+- Alternância a cada 7 segundos, transição suave, anterior/próxima e pausar/retomar. Pausa temporária com foco, mouse, página oculta ou banner fora de vista. Movimento reduzido e economia de dados iniciam sem reprodução automática. Imagens seguintes são carregadas quando selecionadas; as já visitadas podem ser recuperadas do cache offline.
+- A Lumi ganhou uma nova pose junto às respostas. No celular, a imagem ocupa uma coluna pequena sem sobrepor texto, campo ou botões. A mascote é identificada como assistente virtual, com linguagem acolhedora e observações sobre a medição atual, sem inventar previsão do restante do dia.
+- Perguntas simples recebem respostas mais curtas. Dados antigos continuam identificados como antigos; ausência de medições não é substituída por dados fictícios.
+- Voz: síntese de fala do navegador, seleção de voz em português, preferência salva, ritmo de 0,96, pitch de 1,06 e pausas entre frases. Números e unidades são adaptados para leitura. Há exemplo e botão de parar; fechar a Lumi ou ocultar a página cancela a fala. Microfone continua pedindo revisão do que foi entendido antes de executar o comando.
+- A voz depende das opções instaladas/disponíveis no navegador: não foi adicionado serviço de voz neural externo, clonagem ou conta paga. Testes automatizados verificam controle, texto enviado à síntese e cancelamento; não certificam a qualidade acústica no aparelho do usuário.
+
+Publicação: enviar também a pasta assets ao GitHub. O buildCommand tem 199 caracteres, abaixo do limite da Vercel, e publica 8 arquivos na raiz mais 7 imagens em assets. campus-banner.png permanece no projeto como imagem anterior e não é mais incluída no pacote publicado. Cache v30. Nenhuma dependência nova.
+
+### Nova imagem da Lumi
+
+Arquivo: assets/lumi-acenando.png. Criado com a ferramenta integrada image_gen a partir de lumi.png; PNG com transparência, sem edição posterior. Prompt utilizado:
+
+> Create a new pose of the exact same Lumi mascot in the supplied image for her weather school project chat sidebar. Preserve her identity: cute textured watercolor/paper chibi illustration, warm light-brown ponytail, black round glasses, small red mushroom hair clip, dark green school trousers, white school shirt with small crest and white laboratory coat. New pose: full body facing slightly toward viewer's left, welcoming open smile, one hand raised in a friendly wave, other arm holding her dark tablet close to her chest. Welcoming curious student mascot. Keep full body and fingers within frame, generous clean silhouette, no added props or text. Isolated on genuinely transparent background with alpha, no black/white background, no checkerboard pattern. Portrait PNG asset, tightly but safely framed, suitable beside a chat bubble. This is a variation of the provided character, not a new character.
