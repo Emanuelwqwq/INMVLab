@@ -67,6 +67,7 @@ function interfaceIcon(name){ return `<svg class="ui-icon" viewBox="0 0 24 24" f
       }));
     }
     function render() {
+      window.SiteExperience?.acceptDay({key:selected,items:records,state:loading?'loading':failed?'error':'ready',partial:cached,at:Date.now()});
       const items = filtered();
       el('exportButton').disabled = loading || failed || !items.length;
       el('historyRetry').classList.toggle('hidden', !failed);
@@ -171,6 +172,8 @@ function updateDayNight(){
   const hour = now.getHours() + now.getMinutes() / 60;
   $('#timeGreeting').textContent = hour >= 6 && hour < 12 ? 'Bom dia!' : hour >= 12 && hour < 18 ? 'Boa tarde!' : 'Boa noite!';
   const night = hour < 6 || hour >= 18;
+  document.getElementById('topClock').textContent=now.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+  document.getElementById('topDate').textContent=now.toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'short'});
   document.body.classList.toggle('night-mode', night);
   $('#weatherIcon').textContent = night ? '☾' : '☼';
   $('#currentDateLabel').textContent = now.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' }).toUpperCase();
@@ -277,6 +280,10 @@ function fireRisk(temp, hum){
   return { label: 'baixo', className: 'low' };
 }
 
+function refreshChartTheme(){
+  const dark=document.documentElement.dataset.theme==='dark';
+  for(const chart of [historyChart,analysisChart]){if(!chart)continue;chart.options.plugins.legend.labels.color=dark?'#afbed6':'#597493';chart.options.scales.x.ticks.color=dark?'#afbed6':'#597493';for(const scale of Object.values(chart.options.scales)){if(scale.grid)scale.grid.color=dark?'#27344c':'#dfeaf4';}chart.update('none');}
+}
 function setupCharts(){
   const config = {
     type: 'line',
@@ -291,16 +298,17 @@ function setupCharts(){
       responsive: true,
       maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
-      plugins: { legend: { labels: { color: '#9ba8c3', boxWidth: 10, font: { family: 'DM Sans', size: 10 } } } },
+      plugins: { legend: { labels: { color: '#597493', boxWidth: 10, font: { family: 'DM Sans', size: 10 } } } },
       scales: {
-        x: { ticks: { color: '#9ba8c3' }, grid: { color: '#1a2540' } },
-        temp: { position: 'left', ticks: { color: '#995bff' }, grid: { color: '#1a2540' } },
+        x: { ticks: { color: '#597493' }, grid: { color: '#dfeaf4' } },
+        temp: { position: 'left', ticks: { color: '#995bff' }, grid: { color: '#dfeaf4' } },
         hum: { position: 'right', ticks: { color: '#339bef' }, grid: { display: false } }
       }
     }
   };
   historyChart = new Chart($('#historyChart'), config);
   analysisChart = new Chart($('#analysisChart'), { ...config, data: { labels: [], datasets: [{ ...config.data.datasets[0], data: [] }] } });
+  refreshChartTheme();
 }
 
 function updateCharts(){
@@ -363,7 +371,7 @@ function updateCurrent(){
   $('#tempValue').textContent = temp.toFixed(1);
   $('#humValue').textContent = Math.round(hum);
   $('#comfortValue').textContent = comfort;
-  $('#comfortTag').textContent = comfort >= 75 ? 'bom para permanecer' : comfort >= 50 ? 'moderado hoje' : 'fora da faixa ideal';
+  $('#comfortTag').textContent = comfort >= 75 ? 'Confortável' : comfort >= 50 ? 'Moderado' : 'Desconfortável';
   $('#stationState').textContent = 'ONLINE';
   $('#heroCondition').textContent = comfort >= 75 ? 'Condições agradáveis no momento' : 'Condições pedem atenção';
   $('#fireRiskLabel').textContent = risk.label;
@@ -398,19 +406,12 @@ function updateAlerts(){
     : '<div class="empty-state">Nenhum alerta no momento.</div>';
 }
 
-function updateOverview(){
-  if (!latest) return;
-  const online = isSensorOnline();
-  const comfort = comfortScore(latest.temp, latest.hum);
-  document.querySelector('#overviewRecommendationTitle').textContent = online ? (comfort >= 75 ? 'Ambiente agradável' : 'Atenção às condições') : 'Estação sem leituras recentes';
-  document.querySelector('#overviewRecommendation').textContent = online ? (comfort >= 75 ? 'As condições atuais estão adequadas. Continue acompanhando as próximas medições.' : 'Confira a central de alertas e acompanhe as próximas medições.') : 'Verifique a alimentação e a conexão da estação.';
-  document.querySelector('#overviewAlerts').innerHTML = document.querySelector('#alertList').innerHTML;
-  document.querySelector('#connPill').classList.toggle('is-offline', !online);
-  document.querySelector('#comfortValue').closest('.metric-card').style.setProperty('--comfort', comfort + '%');
-}
+function updateOverview(){if(!latest)return;document.querySelector('#connPill').classList.toggle('is-offline',!isSensorOnline());document.querySelector('#comfortValue').closest('.metric-card').style.setProperty('--comfort',comfortScore(latest.temp,latest.hum)+'%');window.SiteExperience?.refresh();}
 
 let dailyAnalysis = { key: '', items: [], state: 'idle', at: 0 }, analysisRequest = 0;
 function updateFreshness(){
+ window.StationExplorer?.refresh();
+ const banner=document.getElementById('campusStatus');if(banner)banner.textContent=latest?(isSensorOnline()&&navigator.onLine?'Estação conectada · acompanhando o ambiente':'Estação sem leituras recentes'):'Aguardando a primeira medição';
  const note = document.getElementById('freshnessNote'); if(!note)return;
  const valid = latest && Number.isFinite(latest.date?.getTime()), fresh = valid && isSensorOnline() && navigator.onLine;
  note.classList.toggle('stale', !fresh);
@@ -462,13 +463,14 @@ function exportCsv(){ dayHistory?.exportCsv(); }
 
 function navigate(){
   const view = (location.hash || '#dashboard').slice(1);
-  const valid = ['dashboard','dados','alertas','analises','sobre'];
+  const valid = ['dashboard','dados','alertas','analises','sobre','curiosidades','explorar'];
   const active = valid.includes(view) ? view : 'dashboard';
   $$('.page').forEach(page => page.classList.toggle('hidden', page.dataset.view !== active));
-  $$('nav a[data-page]').forEach(link => { link.classList.toggle('active', link.dataset.page === active); if(link.dataset.page === active) link.setAttribute('aria-current','page'); else link.removeAttribute('aria-current'); });
+  $$('nav a[data-page]').forEach(link => { const selected=link.dataset.page===active||(link.dataset.page==='explorar'&&['curiosidades','sobre'].includes(active));link.classList.toggle('active',selected);if(selected)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current'); });
   $('#menuBackdrop').hidden = true;
   $('.sidebar').classList.remove('mobile-open');
 
+  window.StationExplorer?.onNavigate(active);
   dayHistory?.setActive(active === 'dados');
   if(active==='analises')loadDailyAnalysis();
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -604,15 +606,19 @@ start();
   if(/export|baixar.*dados|csv/.test(text))return say('Abra Dados, escolha o dia e toque em Exportar dia (CSV). A exportação usa as leituras do dia selecionado e o filtro de busca aplicado.');
   if(/historico|dados.*dia|dias.*semana/.test(text))return say('Na página Dados, selecione um dia da semana ou use o campo de data. Você pode voltar semanas, buscar horários e carregar mais leituras. Os horários seguem Canto do Buriti, UTC−3.');
   if(/localiza|onde fica|mapa/.test(text))return say('A estação fica em Canto do Buriti, Piauí. O mapa ajuda a localizar a região; não é um mapa oficial de focos de incêndio. Permitir a localização do aparelho não muda a origem das medições da estação.');
-  if(/lumi|quem e voce|o que voce faz/.test(text))return say('Sou a Lumi, guia do IMNVLab. Posso explicar o site, responder sobre as medições disponíveis e abrir páginas. Minhas respostas são locais e limitadas às informações do projeto; não sou uma IA de conversa geral.');
+  if(/lumi|quem e voce|o que voce faz/.test(text))return say('Sou a Lumi, a curiosa da estação IMNVLab! Adoro explicar o que os números estão contando. Posso interpretar as medições, sugerir cuidados e te acompanhar pelas páginas. Uso as informações do projeto e regras locais; quando não tenho dados, conto isso para você.');
   return false;
  }
  function command(raw){
   stopListening();const text=normalize(raw);
-  if(!text){answer('Digite uma pergunta ou toque em Falar com Lumi.');return;}
+  if(!text){answer('Estou por aqui! Escreva uma pergunta ou toque em Falar com Lumi.');return;}
+  if(/^(oi|ola|bom dia|boa tarde|boa noite|e ai|oi lumi|ola lumi)[.!? ]*$/.test(text)){answer('Oi! Que bom ter companhia na estação. Sou a Lumi: curiosa por natureza e fã de transformar números em descobertas. Quer saber como está o ambiente ou explorar as leituras?');return;}
+  if(/^(obrigad[oa]|valeu|obrigad[oa] lumi|muito obrigad[oa])[.!? ]*$/.test(text)){answer('Por nada! Pequenas observações fazem grandes descobertas. Quando quiser, seguimos explorando o ambiente juntos.');return;}
+  if(/^(tchau|ate mais|ate logo)[.!? ]*$/.test(text)){answer('Até mais! Vou ficar por aqui. Quando voltar, podemos conferir as novas medições.');return;}
   if(/\b(cancele|cancelar|pare|parar)\b|\bnao\s+(abra|abrir|va|navegue)/.test(text)){answer('Tudo bem. Não vou navegar.');return;}
-  const pages=[[/\b(inicio|dashboard|principal)\b/,'dashboard'],[/\b(dados|historico)\b/,'dados'],[/alert/,'alertas'],[/analis/,'analises'],[/\bsobre\b|como funciona a estacao/,'sobre']].filter(([pattern])=>pattern.test(text)).map(([,page])=>page);
+  const pages=[[/\b(inicio|dashboard|principal)\b/,'dashboard'],[/\b(dados|historico)\b/,'dados'],[/alert/,'alertas'],[/analis/,'analises'],[/\bsobre\b|como funciona a estacao/,'sobre'],[/curiosidade|entenda o clima/,'curiosidades'],[/explorar|mais descobertas/,'explorar']].filter(([pattern])=>pattern.test(text)).map(([,page])=>page);
   const explain=/expli|como funciona|o que (e|sao)|ajud/.test(text), navigation=/\b(abrir|abra|abre|ir|va|ver|mostrar|mostre|consultar|leve)\b/.test(text);
+  const extra=window.StationExplorer?.answer(text);if(!navigation&&extra){answer(extra);return;}
   if(!navigation&&siteAnswer(text))return;
   if(pages.length>1){answer('Você quer Início, Dados, Alertas, Análises ou Sobre? Escolha uma página por vez.');return;}
   if(!navigation&&/expli.*(temperatura|umidade|conforto|dados|medicoes|grafico)|analise.*(ambiente|dados)/.test(text)){answer(explainEnvironment());return;}
@@ -622,10 +628,10 @@ start();
   if(!page||(!navigation&&!/^(inicio|dashboard|dados( de (ontem|hoje))?|historico|alertas|analises|sobre)[.!?]*$/.test(text))){answer('Você quer abrir uma página ou fazer uma pergunta? Experimente “abrir alertas”, “explique os alertas” ou pergunte sobre temperatura, risco de incêndio e recomendações.');return;}
   location.hash='#'+page;navigate();
   if(page==='dados'&&/ontem|hoje/.test(text)){const day=new Date(dateKey(new Date())+'T12:00:00-03:00');if(text.includes('ontem'))day.setUTCDate(day.getUTCDate()-1);el('historyDate').value=dateKey(day);el('historyDate').dispatchEvent(new Event('change',{bubbles:true}));}
-  answer('Pronto. '+descriptions[page]);
+  answer('Vamos lá! '+(descriptions[page]||'Escolha um espaço ou assunto para explorar.')); 
  }
  toggle.addEventListener('click',()=>{if(!panel.hidden)return close();panel.hidden=false;toggle.setAttribute('aria-expanded','true');field.focus();});el('guideClose').addEventListener('click',close);
- el('guideForm').addEventListener('submit',event=>{event.preventDefault();command(field.value);});document.querySelectorAll('[data-guide]').forEach(button=>button.addEventListener('click',()=>command(button.dataset.guide)));
+ el('guideForm').addEventListener('submit',event=>{event.preventDefault();command(field.value);});document.addEventListener('click',event=>{const button=event.target.closest('[data-guide]');if(!button)return;panel.hidden=false;toggle.setAttribute('aria-expanded','true');command(button.dataset.guide);});
  el('guideSpeak').addEventListener('change',()=>{if(!el('guideSpeak').checked)window.speechSynthesis?.cancel();});
  if(!Recognition){listen.disabled=true;listen.textContent='Voz indisponível';}
  else listen.addEventListener('click',()=>{
@@ -669,4 +675,15 @@ start();
  if(supported){try{messaging=firebase.messaging();messaging.onMessage(payload=>{if(active)registration.then(reg=>reg.active?.postMessage({type:'SITE_NOTICE',payload})).catch(()=>{});});if(localStorage.getItem(enabledKey)==='true'&&Notification.permission==='granted')run(async()=>{await register();feedback('Ativado com os limites salvos neste navegador.');});}catch(error){feedback('Notificações indisponíveis neste navegador.');}}
  else feedback('Este navegador não oferece push aqui. No iPhone/iPad, abra o site pelo ícone da Tela de Início.');
  render();
+})();
+
+/* Theme preference is independent of the time-based greeting. */
+(function setupTheme(){
+ const button=document.getElementById('themeToggle'),system=matchMedia('(prefers-color-scheme: dark)');
+ const stored=()=>{try{return localStorage.getItem('imnvlab-theme');}catch{return null;}};
+ function apply(theme){const dark=theme==='dark';document.documentElement.dataset.theme=theme;document.querySelector('meta[name="theme-color"]').content=dark?'#0b1223':'#edf5fc';button.setAttribute('aria-label',dark?'Ativar modo claro':'Ativar modo escuro');button.title=dark?'Ativar modo claro':'Ativar modo escuro';refreshChartTheme();}
+ button.addEventListener('click',()=>{const theme=document.documentElement.dataset.theme==='dark'?'light':'dark';try{localStorage.setItem('imnvlab-theme',theme);}catch{}apply(theme);});
+ system.addEventListener('change',()=>{if(!['dark','light'].includes(stored()))apply(system.matches?'dark':'light');});
+ window.addEventListener('storage',event=>{if(event.key==='imnvlab-theme')apply(['dark','light'].includes(event.newValue)?event.newValue:system.matches?'dark':'light');});
+ apply(document.documentElement.dataset.theme||'light');
 })();

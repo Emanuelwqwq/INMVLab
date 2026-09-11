@@ -4,17 +4,18 @@
   "description": "Monitoramento ambiental em tempo real de Canto do Buriti.",
   "start_url": "./index.html#dashboard",
   "display": "standalone",
-  "background_color": "#050b1c",
-  "theme_color": "#050b1c",
+  "background_color": "#edf5fc",
+  "theme_color": "#edf5fc",
   "lang": "pt-BR",
   "scope": "./",
   "orientation": "any",
   "icons": [
     {
-      "src": "./marca-ceti.jpeg?v=24",
-      "sizes": "1254x1254",
+      "src": "./marca-ceti.jpeg?v=29",
+      "sizes": "370x370",
       "type": "image/jpeg",
       "purpose": "any"
     }
   ]
 }
+
