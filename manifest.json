@@ -11,7 +11,7 @@
   "orientation": "any",
   "icons": [
     {
-      "src": "./marca-ceti.jpeg?v=30",
+      "src": "./marca-ceti.jpeg?v=32",
       "sizes": "370x370",
       "type": "image/jpeg",
       "purpose": "any"

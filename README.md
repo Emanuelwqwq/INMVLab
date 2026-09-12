@@ -84,3 +84,23 @@ Publicação: enviar também a pasta assets ao GitHub. O buildCommand tem 199 ca
 Arquivo: assets/lumi-acenando.png. Criado com a ferramenta integrada image_gen a partir de lumi.png; PNG com transparência, sem edição posterior. Prompt utilizado:
 
 > Create a new pose of the exact same Lumi mascot in the supplied image for her weather school project chat sidebar. Preserve her identity: cute textured watercolor/paper chibi illustration, warm light-brown ponytail, black round glasses, small red mushroom hair clip, dark green school trousers, white school shirt with small crest and white laboratory coat. New pose: full body facing slightly toward viewer's left, welcoming open smile, one hand raised in a friendly wave, other arm holding her dark tablet close to her chest. Welcoming curious student mascot. Keep full body and fingers within frame, generous clean silhouette, no added props or text. Isolated on genuinely transparent background with alpha, no black/white background, no checkerboard pattern. Portrait PNG asset, tightly but safely framed, suitable beside a chat bubble. This is a variation of the provided character, not a new character.
+
+## Uso casual e visual enxuto · v31
+
+Com autorização do usuário, removido o atalho repetido “Explorar um dia” do Início; o acesso pelo banner e por Dados continua disponível. Fonte de cuidados e observações técnicas da Lumi ficam em “Saiba mais”. A faixa com setas e contador do banner foi retirada; a troca automática mantém apenas um pequeno controle de pausa e as preferências de movimento reduzido.
+
+A Lumi passa a oferecer resumo curto do ambiente e botão “Me explica melhor”, preservando a interpretação completa. O botão alterna entre detalhe e resumo. Reconhece formas mais casuais, como “tá quente?”, “e a umidade?”, “não entendi”, “tudo bem?” e “me mostra os dados de ontem”, além de perguntas iniciadas com “Lumi,”. Explicações de continuação usam o assunto anterior apenas durante a sessão. Leituras antigas não são apresentadas como atuais. A voz continua baseada no navegador; nenhuma conta ou serviço adicional foi incluído.
+
+Outras funções e seções foram mantidas. Build continua em 199 caracteres; cache v31.
+
+## Integração do mapa · v32
+
+O mapa agora solicita imagens pelo endereço canônico https://tile.openstreetmap.org/{z}/{x}/{y}.png, com Referer real da página via strict-origin-when-cross-origin e atribuição com link de licença. O navegador mantém seu cache HTTP normal. Imagens do mapa não entram no precache do aplicativo.
+
+A camada só é carregada quando o mapa está visível e a página ativa. Ao ocultar o mapa, solicitações em andamento são canceladas. Não há prefetch de regiões nem tentativas automáticas contínuas após falhas.
+
+As imagens são obtidas com fetch CORS e status HTTP conferido antes de exibir: uma imagem válida de “Access blocked” recebida com erro HTTP não deve ser desenhada como mapa. Em erro HTTP, rede, CORS, decodificação ou demora de 12 segundos, a interface oferece mensagem curta, tentativa manual e link para a localização no OpenStreetMap. Não há proxy, alteração de identidade ou contorno de bloqueios. O código não pode revogar um bloqueio de IP/domínio aplicado pelo provedor.
+
+Verificação: solicitações de tiles simuladas em teste (nenhuma enviada ao OSM), sucesso e resposta 403 contendo imagem, ausência de consultas com mapa oculto, Referer, créditos, interrupção após falha, recuperação manual e layout 360/390/768/1440 px. A liberação efetiva no endereço publicado depende do provedor e deve ser conferida após a publicação.
+
+Referências: [política oficial de tiles](https://operations.osmfoundation.org/policies/tiles/) e [Leaflet 1.9.4](https://leafletjs.com/reference.html#tilelayer-referrerpolicy). Build permanece abaixo de 256 caracteres; cache v32.

@@ -214,13 +214,41 @@ function updateSensorStatus(){
 }
 
 function setupRegionalMap(){
-  const mapElement = $('.map-placeholder');
-  if (!window.L || !mapElement) return;
-  mapElement.innerHTML = '';
-  regionalMap = L.map(mapElement).setView([-8.11, -42.94], 10);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors', maxZoom: 19 }).addTo(regionalMap);
-  locationMarker = L.circleMarker([-8.11, -42.94], { radius: 8, color: '#995bff', fillColor: '#995bff', fillOpacity: .9 }).addTo(regionalMap);
-  locationMarker.bindPopup('<strong>Canto do Buriti</strong><br>-8.11, -42.94');
+  const mapElement=$('.map-placeholder');if(!mapElement)return;
+  const footer=document.createElement('div');footer.className='map-footer';
+  const external=document.createElement('a');external.id='regionalMapExternal';external.textContent='Abrir localização no OpenStreetMap ↗';external.href='https://www.openstreetmap.org/?mlat=-8.11&mlon=-42.94#map=10/-8.11/-42.94';external.target='_blank';external.rel='noopener';footer.append(external);mapElement.after(footer);
+  const feedback=document.createElement('div');feedback.className='map-feedback';feedback.hidden=true;
+  const message=document.createElement('p');message.setAttribute('role','status');
+  const retry=document.createElement('button');retry.type='button';retry.textContent='Tentar novamente';feedback.append(message,retry);
+  if(!window.L){message.textContent='O mapa não carregou neste navegador. Use o link abaixo para ver a localização.';retry.hidden=true;feedback.hidden=false;mapElement.append(feedback);return;}
+  mapElement.replaceChildren();regionalMap=L.map(mapElement,{scrollWheelZoom:false}).setView([-8.11,-42.94],10);
+  // Check HTTP status before displaying images: error responses can contain a valid PNG.
+  const CheckedTiles=L.TileLayer.extend({createTile(coords,done){
+    const image=document.createElement('img'),controller=new AbortController();image.alt='';image.setAttribute('role','presentation');image.referrerPolicy=this.options.referrerPolicy;image._request=controller;
+    const release=()=>{if(image._objectUrl){URL.revokeObjectURL(image._objectUrl);image._objectUrl=null;}};
+    image.onload=()=>{release();if(!controller.signal.aborted)done(null,image);};image.onerror=()=>{release();if(!controller.signal.aborted)done(Error('map-image'),image);};
+    fetch(this.getTileUrl(coords),{mode:'cors',credentials:'omit',referrerPolicy:this.options.referrerPolicy,signal:controller.signal}).then(response=>{if(!response.ok)throw Error('map-http-'+response.status);return response.blob();}).then(blob=>{if(controller.signal.aborted)return;image._objectUrl=URL.createObjectURL(blob);image.src=image._objectUrl;}).catch(error=>{if(!controller.signal.aborted)done(error,image);});return image;
+  }});
+  const tiles=new CheckedTiles('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
+
+    attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    maxZoom:19,referrerPolicy:'strict-origin-when-cross-origin',keepBuffer:0,updateWhenIdle:true,updateWhenZooming:false
+  });
+  locationMarker=L.circleMarker([-8.11,-42.94],{radius:8,color:'#995bff',fillColor:'#995bff',fillOpacity:.9}).addTo(regionalMap);
+  locationMarker.bindPopup('<strong>Canto do Buriti</strong><br>-8.11, -42.94');mapElement.append(feedback);L.DomEvent.disableClickPropagation(feedback);L.DomEvent.disableScrollPropagation(feedback);
+  let visible=false,failed=false,timeout=null;
+  const clearTimer=()=>{clearTimeout(timeout);timeout=null;};
+  function fail(){if(failed)return;failed=true;mapElement.classList.add('map-unavailable');clearTimer();message.textContent='Não foi possível carregar o mapa aqui. Você pode abrir a localização pelo link abaixo.';retry.hidden=false;feedback.hidden=false;queueMicrotask(()=>{if(failed&&regionalMap.hasLayer(tiles))regionalMap.removeLayer(tiles);});}
+  function sync(){if(!visible||document.hidden){clearTimer();if(regionalMap.hasLayer(tiles))regionalMap.removeLayer(tiles);return;}if(failed||regionalMap.hasLayer(tiles))return;regionalMap.invalidateSize({pan:false});message.textContent='Carregando mapa…';retry.hidden=true;feedback.hidden=false;tiles.addTo(regionalMap);clearTimer();timeout=setTimeout(fail,12000);}
+  tiles.on('tileunload',event=>{event.tile._request?.abort();if(event.tile._objectUrl){URL.revokeObjectURL(event.tile._objectUrl);event.tile._objectUrl=null;}});
+  tiles.on('tileerror',event=>{event.tile.style.visibility='hidden';fail();});tiles.on('load',()=>{clearTimer();if(!failed){feedback.hidden=true;mapElement.classList.remove('map-unavailable');}});
+  tiles.on('loading',()=>{if(!failed){clearTimer();timeout=setTimeout(fail,12000);}});
+  retry.addEventListener('click',()=>{failed=false;sync();});
+  regionalMap.on('moveend',()=>{const point=locationMarker.getLatLng(),zoom=regionalMap.getZoom();external.href='https://www.openstreetmap.org/?mlat='+point.lat.toFixed(5)+'&mlon='+point.lng.toFixed(5)+'#map='+zoom+'/'+point.lat.toFixed(5)+'/'+point.lng.toFixed(5);});
+  locationMarker.on('move',()=>{const point=locationMarker.getLatLng();external.href='https://www.openstreetmap.org/?mlat='+point.lat.toFixed(5)+'&mlon='+point.lng.toFixed(5)+'#map=12/'+point.lat.toFixed(5)+'/'+point.lng.toFixed(5);});
+  document.addEventListener('visibilitychange',sync);
+  if('IntersectionObserver' in window)new IntersectionObserver(entries=>{visible=entries[0].isIntersecting&&entries[0].intersectionRatio>0;sync();},{threshold:0}).observe(mapElement);
+  else{message.textContent='Toque para carregar o mapa, ou abra a localização pelo link abaixo.';retry.textContent='Carregar mapa';retry.hidden=false;feedback.hidden=false;visible=true;}
 }
 
 function updateDeviceLocation(position){
@@ -545,7 +573,11 @@ start();
  function speechText(text){return text.replace(/[\p{Extended_Pictographic}\uFE0F\u200D]/gu,'').replace(/(\d)\.(\d)/g,'$1,$2').replace(/(\d+(?:,\d+)?)\s*°C/g,'$1 graus Celsius').replace(/(\d+(?:,\d+)?)%/g,'$1 por cento').replace(/(\d+)\/100/g,'$1 de 100').replace(/(\d{1,2}):(\d{2})(?::\d{2})?/g,(_,h,m)=>h+' horas'+(m==='00'?'':' e '+Number(m)+' minutos')).replace(/UTC[−-]3/g,'horário da estação').replace(/[↗→]/g,' ').replace(/\s+/g,' ').trim();}
  function populateVoices(){if(!window.speechSynthesis)return;voices=speechSynthesis.getVoices().filter(v=>/^pt(?:[-_]|$)/i.test(v.lang));voices.sort((a,b)=>{const score=v=>(/^pt[-_]BR$/i.test(v.lang)?10:0)+(/natural|neural|francisca|maria|luciana|google/i.test(v.name)?2:0);return score(b)-score(a);});voiceSelect.replaceChildren(new Option('Escolher automaticamente',''));for(const voice of voices)voiceSelect.add(new Option(voice.name+' · '+voice.lang,voice.voiceURI));voiceSelect.value=voices.some(v=>v.voiceURI===preferredVoice)?preferredVoice:'';voiceStatus.textContent=voices.length?'Escolha uma voz e toque em Ouvir exemplo.':'A lista de vozes em português ainda não está disponível. Vou pedir ao navegador a voz em português do Brasil.';}
  function speak(text){stopSpeaking();if(!window.speechSynthesis)return;stopListening();const version=speechVersion,parts=speechText(text).match(/[^.!?]+[.!?]*/g)||[];let index=0;const voice=voices.find(v=>v.voiceURI===voiceSelect.value)||voices[0];function next(){if(version!==speechVersion||panel.hidden||document.hidden)return;if(index>=parts.length){panel.dataset.state='idle';voiceStatus.textContent='Prontinho. Pode me fazer outra pergunta.';return;}const utterance=new SpeechSynthesisUtterance(parts[index++].trim());utterance.lang=voice?.lang||'pt-BR';if(voice)utterance.voice=voice;utterance.rate=.96;utterance.pitch=1.06;utterance.volume=1;utterance.onstart=()=>{if(version===speechVersion){panel.dataset.state='speaking';voiceStatus.textContent='Lumi está falando…';}};utterance.onend=()=>{if(version===speechVersion)voiceTimer=setTimeout(next,130);};utterance.onerror=event=>{if(version===speechVersion){panel.dataset.state='idle';voiceStatus.textContent=event.error==='not-allowed'?'Toque em Ouvir exemplo para liberar a voz neste navegador.':'Não consegui falar agora. A resposta continua disponível em texto.';}};speechSynthesis.speak(utterance);}next();}
- function answer(text,read=true){el('guideReply').textContent=text;el('guideReply').scrollTop=0;stopSpeaking();if(read&&el('guideSpeak').checked)speak(text);}
+ let explanation=null,lastTopic='environment',greetingCount=0;
+ const detailButton=document.createElement('button');detailButton.type='button';detailButton.id='guideDetail';detailButton.className='text-link';detailButton.hidden=true;el('guideReply').after(detailButton);
+ function answer(text,read=true,detail=''){explanation=detail?{short:text,full:detail,expanded:false}:null;detailButton.hidden=!explanation;detailButton.textContent='Me explica melhor →';el('guideReply').textContent=text;el('guideReply').scrollTop=0;stopSpeaking();if(read&&el('guideSpeak').checked)speak(text);}
+ function expandExplanation(){if(!explanation)return;explanation.expanded=!explanation.expanded;const text=explanation.expanded?explanation.full:explanation.short;el('guideReply').textContent=text;el('guideReply').scrollTop=0;detailButton.textContent=explanation.expanded?'Voltar ao resumo':'Me explica melhor →';stopSpeaking();if(el('guideSpeak').checked)speak(text);}
+ detailButton.addEventListener('click',expandExplanation);
  function close(){stopListening();stopSpeaking();panel.hidden=true;toggle.setAttribute('aria-expanded','false');toggle.focus();}
  function friendlyObservation(r){const parts=[];if(r.temp>=28)parts.push('Está quentinho perto da estação agora.');else if(r.temp<18)parts.push('Está mais friozinho perto da estação agora.');else parts.push('A temperatura está mais amena perto da estação.');if(r.hum<40)parts.push('O ar também está mais seco.');else if(r.hum>70)parts.push('O ar está bem úmido.');return parts.join(' ');}
  if('speechSynthesis' in window){populateVoices();speechSynthesis.addEventListener('voiceschanged',populateVoices);}else{el('guideSpeak').disabled=true;el('guideSpeak').checked=false;voiceSelect.disabled=true;el('lumiVoicePreview').disabled=true;voiceStatus.textContent='Este navegador não oferece leitura em voz alta. Podemos conversar por texto.';}
@@ -563,7 +595,7 @@ start();
   parts.push(outside?'Há valores fora dos limites configurados. Abra Alertas para conferir quais condições estão destacadas.':'Os valores estão dentro dos limites que você configurou. Isso pode coexistir com calor ou ar seco: os limites dos alertas são personalizáveis.');
   return parts.join('\n\n');
  }
- function explainEnvironment(){
+ function explainEnvironmentDetail(){
   const summary=summarizeRecentReadings(readings,thresholds);
   if(!summary)return 'Ainda não tenho medições válidas para interpretar. Aguarde a estação ou abra Dados para consultar o histórico.';
   const current=summary.end,stamp=current.date.toLocaleString('pt-BR',{timeZone:'America/Fortaleza'});
@@ -572,6 +604,14 @@ start();
   if(summary.tempDelta!==null){const delta=summary.tempDelta;result+=' Nas '+summary.count+' amostras recentes, a temperatura '+(Math.abs(delta)<0.05?'não mudou entre a primeira e a última leitura':(delta>0?'subiu ':'caiu ')+Math.abs(delta).toLocaleString('pt-BR',{maximumFractionDigits:1})+' °C entre a primeira e a última leitura')+'. Isso descreve o intervalo observado, não uma previsão. Consulte o gráfico em Análises para explorar o dia.';}
   return result;
  }
+ function explainEnvironment(){
+  const summary=summarizeRecentReadings(readings,thresholds);
+  if(!summary)return 'Vamos descobrir juntos! Por enquanto, a estação ainda não enviou uma medição válida. Em Dados, você pode escolher um dia que já tenha registros.';
+  const r=summary.end,stamp=r.date.toLocaleString('pt-BR',{timeZone:'America/Fortaleza'});
+  if(summary.stale)return 'Quero te passar uma informação certinha: a última leitura é de '+stamp+'. Ela está antiga, então ainda não dá para dizer como está agora. Podemos olhar o histórico em Dados enquanto a estação volta.';
+  return 'Olha só: estamos com '+r.temp.toLocaleString('pt-BR')+' °C e '+r.hum.toLocaleString('pt-BR')+'% de umidade perto da estação. '+friendlyObservation(r)+' '+(r.temp>=28?'Vale procurar um cantinho mais fresco e deixar água por perto.':r.hum<40?'Vale acompanhar a umidade nas próximas leituras.':'Vamos acompanhar as próximas medições?');
+ }
+ function answerEnvironment(){answer(explainEnvironment(),true,explainEnvironmentDetail());}
  function measurement(text){
   if(/amanha|previsao/.test(text)){answer('A estação mede o ambiente; não tenho previsão do tempo para amanhã. Posso informar a última leitura de hoje.');return;}
   if(/ontem|semana|\d{1,2}[/-]\d/.test(text)){answer('Para outra data, consulte Dados. Posso abrir “dados de ontem”. Aqui respondo sobre as leituras recentes de hoje.');return;}
@@ -586,19 +626,19 @@ start();
    result=[temperature?summarize('temp','Temperatura','°C'):null,humidity?summarize('hum','Umidade','%'):null].filter(Boolean).join('. ')+`. Cálculo sobre ${today.length} leituras recentes de hoje carregadas no painel, não necessariamente o dia inteiro.`;
   }else {const fresh=Date.now()-current.date.getTime()<=SENSOR_TIMEOUT_MS;result=(fresh?'Vamos conferir! 🌿 Às ':'Encontrei uma leitura de hoje, às ')+time+': '+[temperature?`a temperatura está em ${fmt(current.temp)} °C`:null,humidity?`a umidade está em ${fmt(current.hum)}%`:null,comfort?`o conforto estimado é ${comfortScore(current.temp,current.hum)}/100`:null].filter(Boolean).join(' e ')+'.';if(!fresh)result=result.replaceAll('está em','estava em').replace('estimado é','estimado era');}
   if(Date.now()-current.date.getTime()>SENSOR_TIMEOUT_MS)result+=' A estação está sem leitura recente; esses valores não confirmam as condições de agora.';
-  if(Date.now()-current.date.getTime()<=SENSOR_TIMEOUT_MS&&!/media|maxima|minima|maior|menor/.test(text))result+=' '+friendlyObservation(current)+' Quer entender melhor? Me peça uma dica sobre o ambiente.';
-  answer(result);
+  if(Date.now()-current.date.getTime()<=SENSOR_TIMEOUT_MS&&!/media|maxima|minima|maior|menor/.test(text))result+=' '+friendlyObservation(current);
+  answer(result,true,/media|maxima|minima|maior|menor/.test(text)?'':explainEnvironmentDetail());
  }
  function siteAnswer(text){
   const say=value=>{answer(value);return true;};
-  if(/amanha|previsao|vai chover/.test(text))return say('A estação mede temperatura e umidade. Não tenho previsão do tempo nem dados de chuva para responder isso.');
+  if(/amanha|previsao|vai chover/.test(text))return say('Posso te ajudar com o que a estação está medindo agora! Para chuva ou amanhã, ainda não tenho uma previsão. Quer conferir temperatura e umidade?');
   if(/como.*(ambiente|clima|tempo)|ambiente.*(bom|ruim|confort|desconfort|seguro)|interpret|o que.*(dados|medicoes|numeros).*diz|o que.*(dados|medicoes).*signific|tendencia|esta (quente|frio|seco)|ar (seco|abafado)|medidas preventivas|como.*(proteger|prevenir)|o que.*(fazer|melhorar)/.test(text)){
    if(/ontem|semana passada/.test(text))return say('Para interpretar outro dia, abra Dados e selecione a data. O resumo que faço aqui usa somente as medições recentes disponíveis.');
-   return say(explainEnvironment());
+   answerEnvironment();return true;
   }
   if(/notifica|push/.test(text))return say('Em Alertas, escolha as condições, salve os limites e use Ativar neste aparelho. Depois toque em Enviar teste. A estação é considerada offline após 2 minutos sem leituras, com verificação a cada minuto; outro aviso informa o retorno. É preciso ativar em cada aparelho.');
   if(/\b(imnvlab|inmvlab|inmvlab|imnv lab|inmv lab)\b/.test(text)&&/o\s*que|oque|quem|significa|projeto/.test(text))return say('IMNVLab significa Instituto Meteorológico Nonato Valente. É o site de monitoramento ambiental da estação de Canto do Buriti, no Piauí. Ele apresenta temperatura e umidade, histórico por dia, indicadores de conforto, estimativa de risco de incêndio e alertas. A Lumi ajuda a interpretar essas informações em linguagem simples.');
-  if(/\bceti\b/.test(text))return say('CETI significa Centro Estadual de Tempo Integral. O painel tem sua própria marca IMNVLab.');
+  if(/\bceti\b/.test(text))return say('CETI quer dizer Centro Estadual de Tempo Integral. O nosso projeto está ligado ao CETI Nonato Valente. Aqui no IMNVLab, a gente acompanha o ambiente e aprende com as medições.');
   if(/incend|queimada|recomenda|sugest|cuidados|dicas|devo fazer/.test(text)){
    if(/amanha|previsao/.test(text))return say('Não tenho previsão meteorológica. O site calcula indicadores a partir das medições da estação.');
    if(/ontem|semana passada/.test(text))return say('Para verificar outro dia, consulte o histórico em Dados. Aqui uso a última medição disponível, sem atribuí-la a uma data diferente.');
@@ -607,12 +647,12 @@ start();
    const stamp=latest.date.toLocaleString('pt-BR',{timeZone:'America/Fortaleza'}),stale=Date.now()-latest.date.getTime()>SENSOR_TIMEOUT_MS;
    if(/incend|queimada/.test(text))return say('O risco estimado pelo painel é '+fireRisk(latest.temp,latest.hum).label+', com '+latest.temp.toLocaleString('pt-BR')+' °C e '+latest.hum.toLocaleString('pt-BR')+'% de umidade. Leitura de '+stamp+'. '+(stale?'A leitura está desatualizada e não confirma o risco agora. ':'')+'É um indicador simplificado de temperatura e umidade, não um alerta oficial ou detector de incêndio.');
    if(stale)return say('A estação está sem leitura recente. Minha recomendação é verificar a conexão e a alimentação da estação antes de usar os valores para avaliar o ambiente. Última medição: '+stamp+'.');
-   return say(explainEnvironment());
+   answerEnvironment();return true;
   }
   if(/confort/.test(text)&&/significa|calcul|o\s*que|oque/.test(text))return say('Conforto é uma pontuação estimada de 0 a 100 usando temperatura e umidade. Quanto maior, mais próximas das faixas de referência do painel estão as condições. Não é uma medição direta de sensação térmica nem uma avaliação individual de saúde.');
-  if(/umidade/.test(text)&&/significa|o\s*que|oque/.test(text))return say('Umidade relativa indica, em porcentagem, quanto vapor de água existe no ar em relação ao máximo que ele comporta naquela temperatura. O sensor da estação mede esse valor.');
+  if(/umidade/.test(text)&&/significa|o\s*que|oque/.test(text))return say('Sabe quando o ar parece bem seco ou mais úmido? É isso que esse número ajuda a entender! Ele compara a água presente no ar com o máximo que caberia como vapor naquela temperatura. No painel, aparece em porcentagem.');
   if(/sensor|dht11|esp32|firebase|firestore|de onde.*dados/.test(text))return say('O DHT11 mede temperatura e umidade. O ESP32 envia os dados pela internet e o Firebase os armazena. O site lê essas medições para montar gráficos, histórico e alertas.');
-  if(/offline|sem conexao|sem dados|nao atualiza|parou/.test(text))return say('Offline significa que o painel não recebeu uma leitura recente ou não conseguiu acessar os dados. Confira a alimentação e o Wi-Fi da estação, a internet do aparelho e o horário da última medição. O painel considera a estação sem leitura recente após dois minutos.');
+  if(/offline|sem conexao|sem dados|nao atualiza|parou/.test(text))return say('A estação ficou sem mandar uma leitura recente. Vamos conferir a energia, o Wi-Fi e o horário da última medição? Após 2 minutos sem atualização, o painel mostra offline. Em Alertas, tem uma ajuda passo a passo.');
   if(/limites|configurar.*alert|personalizar.*alert/.test(text))return say('Em Alertas → O que merece sua atenção? você define temperatura mínima e máxima, faixa de umidade e condições destacadas. As preferências ficam salvas neste navegador.');
   if(/export|baixar.*dados|csv/.test(text))return say('Abra Dados, escolha o dia e toque em Exportar dia (CSV). A exportação usa as leituras do dia selecionado e o filtro de busca aplicado.');
   if(/historico|dados.*dia|dias.*semana/.test(text))return say('Na página Dados, selecione um dia da semana ou use o campo de data. Você pode voltar semanas, buscar horários e carregar mais leituras. Os horários seguem Canto do Buriti, UTC−3.');
@@ -621,22 +661,26 @@ start();
   return false;
  }
  function command(raw){
-  stopListening();const text=normalize(raw);
+  stopListening();const text=normalize(raw).replace(/^lumi[,! ]+/, '').replace(/,\s*lumi[.!?]*$/, '').trim();
   if(!text){answer('Estou por aqui! Escreva uma pergunta ou toque em Falar com Lumi.');return;}
-  if(/^(oi|ola|bom dia|boa tarde|boa noite|e ai|oi lumi|ola lumi)[.!? ]*$/.test(text)){answer('Oi! Que bom que você veio! 🌿 Eu sou a Lumi, sua assistente virtual aqui no projeto. Adoro uma boa pergunta. Vamos ver como está o ambiente ou descobrir algo novo?');return;}
+  if(/^(oi|ola|bom dia|boa tarde|boa noite|e ai|oi lumi|ola lumi)[.!? ]*$/.test(text)){const greetings=['Oi! Que bom te ver por aqui. 💜 Sou a Lumi, sua assistente virtual no projeto. Quer saber como está o ambiente? É só perguntar!','Opa, estou por aqui! 🌿 Vamos olhar a temperatura ou descobrir algo sobre o clima?','Oi de novo! Me conta: o que você quer descobrir hoje?'];answer(greetings[greetingCount++%greetings.length]);return;}
+  if(/^(tudo bem|como voce esta|como vai|tudo bom)[!? .]*$/.test(text)){answer('Prontinha para te ajudar! 💜 Você pode falar do seu jeito: “tá quente?”, “o ar está seco?” ou “me mostra os dados de ontem”.');return;}
+  if(/^(nao entendi|como assim|me explica melhor|pode simplificar|explique melhor)[!? .]*$/.test(text)){if(explanation&&!explanation.expanded&&/me explica|explique melhor/.test(text)){expandExplanation();return;}const simple={temp:'Claro! Temperatura é o quanto o ar está quente ou frio perto do sensor. Quanto maior o número em graus, mais quente ele está. Quer conferir o valor de agora?',hum:'Claro! Umidade fala da água que existe no ar, mesmo quando a gente não consegue vê-la. Uma porcentagem baixa indica ar mais seco; uma alta, ar mais úmido. Quer ver a leitura?',environment:'Vamos por partes: temperatura conta se o ar está quente ou frio; umidade conta se ele está mais seco ou úmido. Juntas, elas ajudam a entender o ambiente. Você pode me perguntar uma de cada vez.'};answer(simple[lastTopic]||simple.environment);return;}
+  if(/umidade|seco|umido/.test(text))lastTopic='hum';else if(/temperatura|graus|quente|calor|frio/.test(text))lastTopic='temp';
+  if(/^(ta|esta) (quente|frio)|^e o (clima|tempo)|^o ar esta (seco|umido)/.test(text)){answerEnvironment();return;}
   if(/^(obrigad[oa]|valeu|obrigad[oa] lumi|muito obrigad[oa])[.!? ]*$/.test(text)){answer('Imagina! Adorei ajudar. 💜 Se surgir outra dúvida, é só me chamar. A gente descobre junto!');return;}
   if(/^(tchau|ate mais|ate logo)[.!? ]*$/.test(text)){answer('Até mais! Vou ficar por aqui. Quando voltar, podemos conferir as novas medições.');return;}
   if(/\b(cancele|cancelar|pare|parar)\b|\bnao\s+(abra|abrir|va|navegue)/.test(text)){answer('Tudo bem. Não vou navegar.');return;}
   const pages=[[/\b(inicio|dashboard|principal)\b/,'dashboard'],[/\b(dados|historico)\b/,'dados'],[/alert/,'alertas'],[/analis/,'analises'],[/\bsobre\b|como funciona a estacao/,'sobre'],[/curiosidade|entenda o clima/,'curiosidades'],[/explorar|mais descobertas/,'explorar']].filter(([pattern])=>pattern.test(text)).map(([,page])=>page);
-  const explain=/expli|como funciona|o que (e|sao)|ajud/.test(text), navigation=/\b(abrir|abra|abre|ir|va|ver|mostrar|mostre|consultar|leve)\b/.test(text);
+  const explain=/expli|como funciona|o que (e|sao)|ajud/.test(text), navigation=/\b(abrir|abra|abre|ir|va|ver|mostrar|mostre|mostra|consultar|leve)\b/.test(text);
   const extra=window.StationExplorer?.answer(text);if(!navigation&&extra){answer(extra);return;}
   if(!navigation&&siteAnswer(text))return;
-  if(pages.length>1){answer('Você quer Início, Dados, Alertas, Análises ou Sobre? Escolha uma página por vez.');return;}
-  if(!navigation&&/expli.*(temperatura|umidade|conforto|dados|medicoes|grafico)|analise.*(ambiente|dados)/.test(text)){answer(explainEnvironment());return;}
+  if(pages.length>1){answer('Vamos por partes para eu te levar ao lugar certo. Você quer ver os Dados, os Alertas ou as Análises primeiro?');return;}
+  if(!navigation&&/expli.*(temperatura|umidade|conforto|dados|medicoes|grafico)|analise.*(ambiente|dados)/.test(text)){answerEnvironment();return;}
   if(explain){answer(descriptions[pages[0]||location.hash.slice(1)]||descriptions.dashboard);return;}
   if(/temperatura|graus|umidade|conforto|calor|frio/.test(text)&&!navigation){measurement(text);return;}
   const page=pages[0];
-  if(!page||(!navigation&&!/^(inicio|dashboard|dados( de (ontem|hoje))?|historico|alertas|analises|sobre)[.!?]*$/.test(text))){answer('Você quer abrir uma página ou fazer uma pergunta? Experimente “abrir alertas”, “explique os alertas” ou pergunte sobre temperatura, risco de incêndio e recomendações.');return;}
+  if(!page||(!navigation&&!/^(inicio|dashboard|dados( de (ontem|hoje))?|historico|alertas|analises|sobre)[.!?]*$/.test(text))){answer('Acho que não peguei bem essa. Pode tentar de outro jeito? 💜 Eu ajudo com o site e o ambiente: “tá quente?”, “o que é umidade?” ou “abrir dados de ontem”.');return;}
   location.hash='#'+page;navigate();
   if(page==='dados'&&/ontem|hoje/.test(text)){const day=new Date(dateKey(new Date())+'T12:00:00-03:00');if(text.includes('ontem'))day.setUTCDate(day.getUTCDate()-1);el('historyDate').value=dateKey(day);el('historyDate').dispatchEvent(new Event('change',{bubbles:true}));}
   answer('Vamos lá! '+(descriptions[page]||'Escolha um espaço ou assunto para explorar.')); 
@@ -651,7 +695,7 @@ start();
   recognition.onresult=event=>{if(id!==session)return;const transcript=event.results[0][0].transcript;stopListening();field.value=transcript;answer('Ouvi: “'+transcript+'”. Corrija se precisar e toque em Enviar para confirmar.',false);field.focus();};
   recognition.onerror=event=>{if(id!==session)return;stopListening();answer(event.error==='not-allowed'?'O microfone foi bloqueado. Permita o acesso nas configurações do navegador ou digite sua pergunta.':'Não consegui reconhecer sua fala. Tente novamente ou digite a pergunta.',false);};
   recognition.onend=()=>{if(id!==session)return;stopListening();answer('Não recebi uma frase. Toque para tentar novamente ou digite.',false);};
-  try{recognition.start();listen.textContent='Cancelar escuta';answer('Estou ouvindo. Você terá a chance de revisar a frase.',false);timer=setTimeout(()=>{if(id!==session)return;stopListening();answer('A escuta terminou após 12 segundos. Tente novamente ou digite.',false);},12000);}catch{stopListening();answer('Não foi possível iniciar o microfone. Digite sua pergunta ou tente novamente.',false);}
+  try{recognition.start();listen.textContent='Cancelar escuta';answer('Pode falar, estou ouvindo! Depois você confere a frase antes de enviar.',false);panel.dataset.state='listening';timer=setTimeout(()=>{if(id!==session)return;stopListening();answer('A escuta terminou após 12 segundos. Tente novamente ou digite.',false);},12000);}catch{stopListening();answer('Não foi possível iniciar o microfone. Digite sua pergunta ou tente novamente.',false);}
  });
  window.addEventListener('keydown',event=>{if(event.key==='Escape'&&!panel.hidden)close();});document.addEventListener('visibilitychange',()=>{if(document.hidden){stopListening();stopSpeaking();}});
 })();
