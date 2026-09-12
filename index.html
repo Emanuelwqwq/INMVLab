@@ -9,9 +9,9 @@
 (()=>{let saved;try{saved=localStorage.getItem('imnvlab-theme');}catch{}const theme=saved==='dark'||saved==='light'?saved:(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.dataset.theme=theme;document.querySelector('meta[name="theme-color"]').content=theme==='dark'?'#0b1223':'#edf5fc';})();
 </script>
 <meta name="description" content="Monitoramento ambiental em tempo real de Canto do Buriti.">
-<link rel="manifest" href="manifest.json?v=32">
-<link rel="apple-touch-icon" href="marca-ceti.jpeg?v=32">
-<link rel="icon" type="image/jpeg" href="marca-ceti.jpeg?v=32">
+<link rel="manifest" href="manifest.json?v=33">
+<link rel="apple-touch-icon" href="marca-ceti.jpeg?v=33">
+<link rel="icon" type="image/jpeg" href="marca-ceti.jpeg?v=33">
 <title>IMNVLab | Canto do Buriti</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -27,9 +27,9 @@
 
 </head>
 <body>
-<header class="site-topbar"><a class="brand" href="#dashboard"><img class="school-brand" src="marca-ceti.jpeg?v=32" alt="CETI Nonato Valente" width="46" height="46"><span><strong>IMNV<span>Lab</span></strong><small>Instituto Meteorológico Nonato Valente</small></span></a><div class="topbar-context"><span class="topbar-place">Canto do Buriti · PI</span><div><small id="topDate">Horário local</small><time id="topClock">--:--</time></div><button id="themeToggle" class="theme-toggle" type="button" aria-label="Alternar tema claro e escuro" title="Alternar tema"><svg class="theme-moon ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.8 13.2A9 9 0 0 1 10.8 3.1 9 9 0 1 0 20.8 13.2Z"/></svg><svg class="theme-sun ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></svg></button><button class="topbar-lumi" data-guide="como está o ambiente" aria-label="Conversar com a Lumi"><img src="lumi.png" alt="" width="42" height="42"></button></div></header>
+<header class="site-topbar"><a class="brand" href="#dashboard"><img class="school-brand" src="marca-ceti.jpeg?v=33" alt="CETI Nonato Valente" width="46" height="46"><span><strong>IMNV<span>Lab</span></strong><small>Instituto Meteorológico Nonato Valente</small></span></a><div class="topbar-context"><span class="topbar-place">Canto do Buriti · PI</span><div><small id="topDate">Horário local</small><time id="topClock">--:--</time></div><button id="themeToggle" class="theme-toggle" type="button" aria-label="Alternar tema claro e escuro" title="Alternar tema"><svg class="theme-moon ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.8 13.2A9 9 0 0 1 10.8 3.1 9 9 0 1 0 20.8 13.2Z"/></svg><svg class="theme-sun ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></svg></button><button class="topbar-lumi" data-guide="como está o ambiente" aria-label="Conversar com a Lumi"><img src="lumi.png" alt="" width="42" height="42"></button></div></header>
 <aside class="sidebar">
-  <a class="brand" href="#dashboard"><img class="brand-mark school-brand" src="marca-ceti.jpeg?v=32" alt="CETI Nonato Valente" width="38" height="38"><span><strong>IMNVLab</strong><small>Instituto Meteorológico Nonato Valente</small></span></a>
+  <a class="brand" href="#dashboard"><img class="brand-mark school-brand" src="marca-ceti.jpeg?v=33" alt="CETI Nonato Valente" width="38" height="38"><span><strong>IMNVLab</strong><small>Instituto Meteorológico Nonato Valente</small></span></a>
   <div class="location"><span class="eyebrow">LOCALIZAÇÃO DO DISPOSITIVO</span><strong id="deviceLocation">Canto do Buriti</strong><span id="deviceCoordinates">PI · -8.11, -42.94</span><button class="location-button" id="locationButton">⌖ Usar localização atual</button></div>
   <nav aria-label="Navegação principal">
     <a href="#dashboard" data-page="dashboard" class="active"><svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 10 9-7 9 7M5 9v11h5v-6h4v6h5V9"/></svg> Início</a>

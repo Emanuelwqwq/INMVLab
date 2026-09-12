@@ -215,12 +215,10 @@ function updateSensorStatus(){
 
 function setupRegionalMap(){
   const mapElement=$('.map-placeholder');if(!mapElement)return;
-  const footer=document.createElement('div');footer.className='map-footer';
-  const external=document.createElement('a');external.id='regionalMapExternal';external.textContent='Abrir localização no OpenStreetMap ↗';external.href='https://www.openstreetmap.org/?mlat=-8.11&mlon=-42.94#map=10/-8.11/-42.94';external.target='_blank';external.rel='noopener';footer.append(external);mapElement.after(footer);
   const feedback=document.createElement('div');feedback.className='map-feedback';feedback.hidden=true;
   const message=document.createElement('p');message.setAttribute('role','status');
   const retry=document.createElement('button');retry.type='button';retry.textContent='Tentar novamente';feedback.append(message,retry);
-  if(!window.L){message.textContent='O mapa não carregou neste navegador. Use o link abaixo para ver a localização.';retry.hidden=true;feedback.hidden=false;mapElement.append(feedback);return;}
+  if(!window.L){message.textContent='O mapa não carregou neste navegador. Atualize a página para tentar novamente.';retry.hidden=true;feedback.hidden=false;mapElement.append(feedback);return;}
   mapElement.replaceChildren();regionalMap=L.map(mapElement,{scrollWheelZoom:false}).setView([-8.11,-42.94],10);
   // Check HTTP status before displaying images: error responses can contain a valid PNG.
   const CheckedTiles=L.TileLayer.extend({createTile(coords,done){
@@ -238,17 +236,15 @@ function setupRegionalMap(){
   locationMarker.bindPopup('<strong>Canto do Buriti</strong><br>-8.11, -42.94');mapElement.append(feedback);L.DomEvent.disableClickPropagation(feedback);L.DomEvent.disableScrollPropagation(feedback);
   let visible=false,failed=false,timeout=null;
   const clearTimer=()=>{clearTimeout(timeout);timeout=null;};
-  function fail(){if(failed)return;failed=true;mapElement.classList.add('map-unavailable');clearTimer();message.textContent='Não foi possível carregar o mapa aqui. Você pode abrir a localização pelo link abaixo.';retry.hidden=false;feedback.hidden=false;queueMicrotask(()=>{if(failed&&regionalMap.hasLayer(tiles))regionalMap.removeLayer(tiles);});}
+  function fail(){if(failed)return;failed=true;mapElement.classList.add('map-unavailable');clearTimer();message.textContent='Não foi possível carregar o mapa. Tente novamente em instantes.';retry.hidden=false;feedback.hidden=false;queueMicrotask(()=>{if(failed&&regionalMap.hasLayer(tiles))regionalMap.removeLayer(tiles);});}
   function sync(){if(!visible||document.hidden){clearTimer();if(regionalMap.hasLayer(tiles))regionalMap.removeLayer(tiles);return;}if(failed||regionalMap.hasLayer(tiles))return;regionalMap.invalidateSize({pan:false});message.textContent='Carregando mapa…';retry.hidden=true;feedback.hidden=false;tiles.addTo(regionalMap);clearTimer();timeout=setTimeout(fail,12000);}
   tiles.on('tileunload',event=>{event.tile._request?.abort();if(event.tile._objectUrl){URL.revokeObjectURL(event.tile._objectUrl);event.tile._objectUrl=null;}});
   tiles.on('tileerror',event=>{event.tile.style.visibility='hidden';fail();});tiles.on('load',()=>{clearTimer();if(!failed){feedback.hidden=true;mapElement.classList.remove('map-unavailable');}});
   tiles.on('loading',()=>{if(!failed){clearTimer();timeout=setTimeout(fail,12000);}});
   retry.addEventListener('click',()=>{failed=false;sync();});
-  regionalMap.on('moveend',()=>{const point=locationMarker.getLatLng(),zoom=regionalMap.getZoom();external.href='https://www.openstreetmap.org/?mlat='+point.lat.toFixed(5)+'&mlon='+point.lng.toFixed(5)+'#map='+zoom+'/'+point.lat.toFixed(5)+'/'+point.lng.toFixed(5);});
-  locationMarker.on('move',()=>{const point=locationMarker.getLatLng();external.href='https://www.openstreetmap.org/?mlat='+point.lat.toFixed(5)+'&mlon='+point.lng.toFixed(5)+'#map=12/'+point.lat.toFixed(5)+'/'+point.lng.toFixed(5);});
   document.addEventListener('visibilitychange',sync);
   if('IntersectionObserver' in window)new IntersectionObserver(entries=>{visible=entries[0].isIntersecting&&entries[0].intersectionRatio>0;sync();},{threshold:0}).observe(mapElement);
-  else{message.textContent='Toque para carregar o mapa, ou abra a localização pelo link abaixo.';retry.textContent='Carregar mapa';retry.hidden=false;feedback.hidden=false;visible=true;}
+  else{message.textContent='Toque para carregar o mapa.';retry.textContent='Carregar mapa';retry.hidden=false;feedback.hidden=false;visible=true;}
 }
 
 function updateDeviceLocation(position){

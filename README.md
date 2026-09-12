@@ -104,3 +104,8 @@ As imagens são obtidas com fetch CORS e status HTTP conferido antes de exibir: 
 Verificação: solicitações de tiles simuladas em teste (nenhuma enviada ao OSM), sucesso e resposta 403 contendo imagem, ausência de consultas com mapa oculto, Referer, créditos, interrupção após falha, recuperação manual e layout 360/390/768/1440 px. A liberação efetiva no endereço publicado depende do provedor e deve ser conferida após a publicação.
 
 Referências: [política oficial de tiles](https://operations.osmfoundation.org/policies/tiles/) e [Leaflet 1.9.4](https://leafletjs.com/reference.html#tilelayer-referrerpolicy). Build permanece abaixo de 256 caracteres; cache v32.
+
+
+## Ajuste visual · v33
+
+Retirado, a pedido do usuário, o link externo abaixo do mapa. Mensagens de falha passam a orientar nova tentativa. Créditos da camada do mapa preservados.
