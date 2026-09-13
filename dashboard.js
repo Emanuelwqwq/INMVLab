@@ -69,7 +69,6 @@ function interfaceIcon(name){ return `<svg class="ui-icon" viewBox="0 0 24 24" f
     function render() {
       window.SiteExperience?.acceptDay({key:selected,items:records,state:loading?'loading':failed?'error':'ready',partial:cached,at:Date.now()});
       const items = filtered();
-      el('exportButton').disabled = loading || failed || !items.length;
       el('historyRetry').classList.toggle('hidden', !failed);
       more.classList.toggle('hidden', loading || failed || items.length <= visibleRows);
       if (loading || failed) {
@@ -132,14 +131,6 @@ function interfaceIcon(name){ return `<svg class="ui-icon" viewBox="0 0 24 24" f
     return {
       render,
       setActive(value) { if (value === active) return; active = value; if (active) subscribe(); else stop(); },
-      exportCsv() {
-        const items = filtered();
-        if (loading || failed || !items.length) return;
-        const rows = [['data_hora_UTC-3', 'temperatura_c', 'umidade_percentual', 'conforto', 'risco'], ...items.map(item => [dateTime(item.date), item.temp.toFixed(1), item.hum.toFixed(1), comfortScore(item.temp, item.hum), fireRisk(item.temp, item.hum).label])];
-        const blob = new Blob(['\uFEFF' + rows.map(row => row.join(';')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
-        const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `leituras-${selected}.csv`; link.click();
-        setTimeout(() => URL.revokeObjectURL(link.href), 1000);
-      }
     };
   }
   const api = { dayKey, bounds, shift, week, combine, create };
@@ -285,7 +276,7 @@ function handleLocationError(error){
 function startLocationTracking(){
   if (!('geolocation' in navigator)) return handleLocationError({ code: 2 });
   if (locationWatchId !== null) return;
-  const options = { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 };
+  const options = { enableHighAccuracy: false, maximumAge: 60000, timeout: 15000 };
   locationWatchId = navigator.geolocation.watchPosition(updateDeviceLocation, handleLocationError, options);
 }
 
@@ -335,7 +326,11 @@ function setupCharts(){
   refreshChartTheme();
 }
 
+let chartSignature="";
 function updateCharts(){
+  if(document.hidden||document.body.classList.contains("is-presenting"))return;
+  const signature=readings.slice(0,MAX_POINTS).map(r=>[+r.date,r.temp,r.hum].join(",")).join(";");
+  if(signature===chartSignature)return;chartSignature=signature;
   const ordered = readings.slice(0, MAX_POINTS).reverse();
   const labels = ordered.map(item => formatTime(item.date));
   const temps = ordered.map(item => item.temp);
@@ -357,6 +352,7 @@ function summarizeRecentReadings(items, limits, now = Date.now()){
  return {end,first,count:samples.length,stale:now-end.date>SENSOR_TIMEOUT_MS,tempDelta:comparable?end.temp-first.temp:null,humDelta:comparable?end.hum-first.hum:null,min:Math.min(...range),max:Math.max(...range),within:Math.round(within/samples.length*100),gaps:samples.some((r,i)=>i>0&&r.date-samples[i-1].date>600000)};
 }
 function updateRecentInsights(){
+ if(document.hidden||document.body.classList.contains("is-presenting"))return;
  const result=summarizeRecentReadings(readings,thresholds);
  $('#recentInsights').hidden=!result;
  if(!result){$('#analysisTitle').textContent='Aguardando dados';$('#analysisText').textContent='As análises aparecem quando a estação enviar medições válidas.';return;}
@@ -384,6 +380,7 @@ function updateRecentInsights(){
 }
 
 function updateCurrent(){
+  if(document.body.classList.contains("is-presenting")){window.SiteExperience?.refresh();return;}
   if (!latest) return;
   const { temp, hum, date } = latest;
   const comfort = comfortScore(temp, hum);
@@ -436,10 +433,7 @@ let dailyAnalysis = { key: '', items: [], state: 'idle', at: 0 }, analysisReques
 function updateFreshness(){
  window.StationExplorer?.refresh();
  const banner=document.getElementById('campusStatus');if(banner)banner.textContent=latest?(isSensorOnline()&&navigator.onLine?'Estação conectada · acompanhando o ambiente':'Estação sem leituras recentes'):'Aguardando a primeira medição';
- const note = document.getElementById('freshnessNote'); if(!note)return;
  const valid = latest && Number.isFinite(latest.date?.getTime()), fresh = valid && isSensorOnline() && navigator.onLine;
- note.classList.toggle('stale', !fresh);
- note.textContent = !valid ? 'Aguardando uma medição válida da estação.' : (fresh ? 'Última medição: ' : 'Dados desatualizados · última medição: ') + latest.date.toLocaleString('pt-BR', { timeZone:'America/Fortaleza' }) + (fresh ? ' · horário de Canto do Buriti.' : '. Os valores exibidos não confirmam as condições de agora.');
  document.querySelector('.kpi-grid').classList.toggle('stale-values', !fresh);
 }
 async function loadDailyAnalysis(force = false){
@@ -459,6 +453,7 @@ async function loadDailyAnalysis(force = false){
  finally{clearTimeout(timeout);if(request===analysisRequest)updateStats();}
 }
 function updateStats(){
+ if(document.hidden||document.body.classList.contains("is-presenting")||location.hash!=="#analises")return;
  const {items,state,key}=dailyAnalysis, ready=state==='ready'&&key===StationHistory.dayKey(), has=ready&&items.length;
  $('#runAnalysisButton').disabled=state==='loading';
  $('#runAnalysisButton').textContent=state==='loading'?'Consultando hoje…':'Atualizar análise';
@@ -471,7 +466,7 @@ function updateStats(){
  $('#dailyRecommendation').textContent='Aguarde as leituras ou consulte outra data em Dados.';
  const ordered=has?[...items].reverse():[];
  analysisChart.data.labels=ordered.map(r=>r.date.toLocaleTimeString('pt-BR',{timeZone:'America/Fortaleza',hour:'2-digit',minute:'2-digit'}));
- analysisChart.data.datasets[0].data=ordered.map(r=>r.temp);analysisChart.update();
+ analysisChart.data.datasets[0].data=ordered.map(r=>r.temp);analysisChart.update('none');
  if(!has)return;
  const sum=items.reduce((s,r)=>({temp:s.temp+r.temp,hum:s.hum+r.hum,max:r.temp>s.max.temp?r:s.max}),{temp:0,hum:0,max:items[0]}), decimal=n=>n.toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1});
  $('#avgTemp').textContent=decimal(sum.temp/items.length)+' °C';$('#avgHum').textContent=decimal(sum.hum/items.length)+'%';$('#maxTemp').textContent=decimal(sum.max.temp)+' °C';$('#maxTempTime').textContent=sum.max.date.toLocaleTimeString('pt-BR',{timeZone:'America/Fortaleza',hour:'2-digit',minute:'2-digit'});
@@ -483,7 +478,6 @@ function updateStats(){
 
 let dayHistory;
 function updateTable(){ dayHistory?.render(); }
-function exportCsv(){ dayHistory?.exportCsv(); }
 
 function navigate(){
   const view = (location.hash || '#dashboard').slice(1);
@@ -495,7 +489,7 @@ function navigate(){
 
   window.StationExplorer?.onNavigate(active);
   dayHistory?.setActive(active === 'dados');
-  if(active==='analises')loadDailyAnalysis();
+  if(active==='analises'){updateStats();loadDailyAnalysis();}
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -552,7 +546,7 @@ function start(){
   setupCharts();
   setupRegionalMap();
   updateDayNight();
-  setInterval(() => { if(document.hidden)return; if(location.hash==='#analises' && !document.hidden)loadDailyAnalysis(); updateDayNight(); if (latest) { updateSensorStatus(); updateOverview(); } }, 15000);
+  setInterval(() => { if(document.hidden)return; if(document.body.classList.contains("is-presenting")){window.SiteExperience?.refresh();return;} if(location.hash==='#analises' && !document.hidden)loadDailyAnalysis(); updateDayNight(); if (latest) { updateSensorStatus(); updateOverview(); } }, 15000);
   window.addEventListener('hashchange', navigate);
   window.addEventListener('offline', showOffline);
   window.addEventListener('online', showConnecting);
@@ -561,7 +555,6 @@ function start(){
   startLocationTracking();
   $('#locationButton').addEventListener('click', startLocationTracking);
   $('#locationButtonTop').addEventListener('click', startLocationTracking);
-  $('#exportButton').addEventListener('click', exportCsv);
   $('#searchInput').addEventListener('input', updateTable);
   $('#runAnalysisButton').addEventListener('click', () => loadDailyAnalysis(true));
 
@@ -588,7 +581,7 @@ start();
  const el=id=>document.getElementById(id), panel=el('guidePanel'), toggle=el('guideToggle'), field=el('guideText'), listen=el('guideListen');
  const normalize=text=>text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
  const dateKey=date=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Fortaleza',year:'numeric',month:'2-digit',day:'2-digit'}).format(date);
- const descriptions={projeto:'Em Sobre o projeto, você conhece a proposta do IMNVLab, nossa equipe, o caminho das medições e as tecnologias usadas. Acesse pelo menu ou por Mais, no celular.',dashboard:'No início você encontra temperatura, umidade e conforto. Os valores são da última medição, cujo horário aparece no painel.',dados:'Em Dados, escolha um dia da semana ou uma data. Você pode buscar um horário e exportar as medições.',alertas:'Alertas mostra as condições que precisam de atenção. Em Limites do painel você escolhe as faixas de temperatura e umidade.',analises:'Análises consulta todas as medições registradas hoje, no horário da estação. A média é por leitura e não estima os períodos sem dados.',sobre:'A estação usa um sensor para medir temperatura e umidade. O ESP32 envia as leituras pela internet para o site.'};
+ const descriptions={projeto:'Em Sobre o projeto, você conhece a proposta do IMNVLab, nossa equipe, o caminho das medições e as tecnologias usadas. Acesse pelo menu ou por Mais, no celular.',dashboard:'No início você encontra temperatura, umidade e conforto. Os valores são da última medição, cujo horário aparece no painel.',dados:'Em Dados, escolha um dia da semana ou uma data. Você pode buscar um horário e consultar as medições.',alertas:'Alertas mostra as condições que precisam de atenção. Em Limites do painel você escolhe as faixas de temperatura e umidade.',analises:'Análises consulta todas as medições registradas hoje, no horário da estação. A média é por leitura e não estima os períodos sem dados.',sobre:'A estação usa um sensor para medir temperatura e umidade. O ESP32 envia as leituras pela internet para o site.'};
  let recognition=null, timer, session=0;
  function stopListening(){session++;clearTimeout(timer);const old=recognition;recognition=null;if(old){old.onend=old.onerror=old.onresult=null;try{old.abort();}catch{}}listen.textContent=Recognition?'Falar com Lumi':'Voz indisponível';if(panel.dataset.state==='listening')panel.dataset.state='idle';}
  let speechVersion=0,voiceTimer,voices=[];
@@ -680,7 +673,7 @@ start();
   if(/sensor|dht11|esp32|firebase|firestore|de onde.*dados/.test(text))return say('O DHT11 mede temperatura e umidade. O ESP32 envia os dados pela internet e o Firebase os armazena. O site lê essas medições para montar gráficos, histórico e alertas.');
   if(/offline|sem conexao|sem dados|nao atualiza|parou/.test(text))return say('A estação ficou sem mandar uma leitura recente. Vamos conferir a energia, o Wi-Fi e o horário da última medição? Após 2 minutos sem atualização, o painel mostra offline. Em Alertas, tem uma ajuda passo a passo.');
   if(/limites|configurar.*alert|personalizar.*alert/.test(text))return say('Em Alertas → O que merece sua atenção? você define temperatura mínima e máxima, faixa de umidade e condições destacadas. As preferências ficam salvas neste navegador.');
-  if(/export|baixar.*dados|csv/.test(text))return say('Abra Dados, escolha o dia e toque em Exportar dia (CSV). A exportação usa as leituras do dia selecionado e o filtro de busca aplicado.');
+  if(/export|baixar.*dados|csv/.test(text))return say('A exportação não está mais disponível. Em Dados, escolha uma data e use a busca para consultar as leituras diretamente no site.');
   if(/historico|dados.*dia|dias.*semana/.test(text))return say('Na página Dados, selecione um dia da semana ou use o campo de data. Você pode voltar semanas, buscar horários e carregar mais leituras. Os horários seguem Canto do Buriti, UTC−3.');
   if(/localiza|onde fica|mapa/.test(text))return say('A estação fica em Canto do Buriti, Piauí. O mapa ajuda a localizar a região; não é um mapa oficial de focos de incêndio. Permitir a localização do aparelho não muda a origem das medições da estação.');
   if(/lumi|quem e voce|o que voce faz/.test(text))return say('Sou a Lumi, a assistente virtual do IMNVLab! 🌿 Tenho jeitinho de estudante curiosa e adoro descobrir o que os números estão contando. Posso interpretar as medições, sugerir cuidados e te acompanhar pelas páginas. Uso as informações do projeto e regras locais; quando não tenho dados, conto isso para você.');

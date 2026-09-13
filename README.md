@@ -206,3 +206,15 @@ Use case: lighting-weather. Edit the supplied anime-painted balcony landscape re
 Use case: lighting-weather. Edit the supplied anime-painted balcony landscape reference into a mild comfortable climate: soft green garden, healthy meadow, gentle rolling mountains and small town below, clean balanced atmosphere. Keep balcony building on left and expansive central 65% empty sky for HTML weather metrics, 16:9 wide landscape. No people, text, numbers, logos or UI. No collage. Preserve delicate painterly anime style. Unmistakable night with deep blue starry sky, small moon, soft silver moonlight on green garden, tiny warm town lights below. No daylight.
 
 </details>
+
+
+### Otimização de setembro
+
+O ambiente mantém transições e nuvens suaves, sem ampliar e filtrar continuamente a imagem inteira. Enquanto aberto, apenas suas medições são atualizadas; o painel retoma ao sair. Celulares e economia de dados usam paisagens de 960 px. Galeria escolar servida em WebP.
+
+Logo escura ajustada com a ferramenta integrada ImageGen: `assets/projeto-logo-tema.webp`. Prompt: Edit this IMNVLab logo image. Preserve EXACT logo composition, symbol shapes, lettering spelling IMNVLab, INSTITUTO DE METEOROLOGIA, NONATO VALENTE. Replace only the pure black background with uniform dark navy slate #101d30 matching a meteorological website dark theme. Change existing very dark navy IMNV and small subtitle lettering to pale blue-white #dfe9fc for legibility. Keep cyan/blue Lab, cloud/wind, yellow sun and colored lines unchanged. No new elements, no shadows, no mockup, no added padding. Square raster logo.
+
+
+### Simplificação dos atalhos
+
+Removidos: leitura fácil, atalho duplicado Modo apresentação em Mais, boletins visuais e exportação CSV. Ver ambiente continua no Início; consulta por data, filtros e preferências dos cartões permanecem disponíveis. A Lumi foi ajustada para não indicar os botões removidos.
