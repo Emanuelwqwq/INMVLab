@@ -159,3 +159,9 @@ body.is-presenting>main *,body.is-presenting>main *::before,body.is-presenting>m
 
 /* Only the home-card preferences remain in this section. */
 .display-options .display-grid{grid-template-columns:1fr}
+.presentation-view .ambient-visibility{min-width:44px;min-height:44px;white-space:nowrap}
+.ambient-visibility svg{width:20px;height:20px;flex-shrink:0}
+#ambientBrand,#presentationConnection,#ambientMeasurements,#ambientFooter{transition:opacity .22s ease,visibility .22s}
+.presentation-view[data-info-hidden=true] #ambientBrand,.presentation-view[data-info-hidden=true] #presentationConnection,.presentation-view[data-info-hidden=true] #ambientMeasurements,.presentation-view[data-info-hidden=true] #ambientFooter{opacity:0;visibility:hidden;pointer-events:none}
+@media(max-width:700px){.presentation-view header .presentation-controls{gap:8px}.presentation-view .ambient-visibility{width:44px;height:44px;padding:10px;border-radius:50%}.ambient-visibility span{display:none}.presentation-view #presentationConnection{position:absolute;left:0;top:48px;max-width:none;font-size:11px}.presentation-view header .ambient-exit{width:44px;height:44px;min-height:44px}}
+@media(prefers-reduced-motion:reduce){#ambientBrand,#presentationConnection,#ambientMeasurements,#ambientFooter{transition:none}}
