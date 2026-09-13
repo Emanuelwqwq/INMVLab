@@ -5,7 +5,7 @@ firebase.initializeApp({ apiKey: "AIzaSyBWDcTMNN4aUYywXhgUw_gJzlkB45F1foM", auth
 let queue=Promise.resolve();
 self.addEventListener('message',event=>{if(event.data?.type!=='SITE_NOTICE')return;const payload=event.data.payload;event.waitUntil(queue=queue.catch(()=>{}).then(async()=>{const cache=await caches.open('imnvlab-notice-seen');const key=new URL('__notice/'+encodeURIComponent(payload.data?.id||payload.messageId),self.registration.scope).href;if(await cache.match(key))return;await self.registration.showNotification(payload.notification?.title||'IMNVLab',{body:payload.notification?.body||'',icon:new URL('./marca-ceti.jpeg?v=41',self.registration.scope).href,tag:payload.data?.id||payload.messageId,data:{siteLink:true}});await cache.put(key,new Response('1'));const keys=await cache.keys();await Promise.all(keys.slice(0,Math.max(0,keys.length-50)).map(k=>cache.delete(k)));}));});
 /* Cache offline do aplicativo. */
-const CACHE_NAME='imnvlab-v45';
+const CACHE_NAME='imnvlab-v47';
 const APP_FILES=['./','./index.html','./styles.css','./dashboard.js','./explorer.js','./lumi.webp','./assets/escola-fachada.webp','./manifest.json?v=41','./marca-ceti.jpeg?v=41'];
 const LAZY_FILES=[...['seco','umido','frio','ameno'].flatMap(f=>['manha','tarde','noite'].map(p=>'./assets/cenarios/mobile/'+f+'-'+p+'.webp')),'./assets/projeto-logo-tema.webp',...['seco','umido','frio','ameno'].flatMap(f=>['manha','tarde','noite'].map(p=>'./assets/cenarios/'+f+'-'+p+'.webp')),'./assets/lumi-acenando.webp','./assets/ambiente-paisagem.webp','./assets/projeto-logo-claro.jpeg','./assets/projeto-logo-escuro.jpeg',...['entrada','biblioteca','sala','informatica','xadrez'].map(name=>'./assets/escola-'+name+'.webp')];
 const scopeUrl=new URL(self.registration.scope);

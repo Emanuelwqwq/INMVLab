@@ -210,7 +210,7 @@ function setupRegionalMap(){
   const message=document.createElement('p');message.setAttribute('role','status');
   const retry=document.createElement('button');retry.type='button';retry.textContent='Tentar novamente';feedback.append(message,retry);
   if(!window.L){message.textContent='O mapa não carregou neste navegador. Atualize a página para tentar novamente.';retry.hidden=true;feedback.hidden=false;mapElement.append(feedback);return;}
-  mapElement.replaceChildren();regionalMap=L.map(mapElement,{scrollWheelZoom:false}).setView([-8.11,-42.94],10);
+  mapElement.replaceChildren();regionalMap=L.map(mapElement,{scrollWheelZoom:false}).setView([-8.11,-42.94],15);
   // Check HTTP status before displaying images: error responses can contain a valid PNG.
   const CheckedTiles=L.TileLayer.extend({createTile(coords,done){
     const image=document.createElement('img'),controller=new AbortController();image.alt='';image.setAttribute('role','presentation');image.referrerPolicy=this.options.referrerPolicy;image._request=controller;
@@ -246,7 +246,7 @@ function updateDeviceLocation(position){
   $('#locationButton').textContent = '⌖ GPS atualizado';
   $('#locationButtonTop').textContent = '⌖ GPS atualizado';
   if (regionalMap) {
-    regionalMap.setView([latitude, longitude], 12);
+    regionalMap.setView([latitude, longitude], 15);
     if (locationMarker) locationMarker.setLatLng([latitude, longitude]);
     else locationMarker = L.circleMarker([latitude, longitude], { radius: 8, color: '#995bff', fillColor: '#995bff', fillOpacity: .9 }).addTo(regionalMap);
     locationMarker.bindPopup('Sua localização atual');

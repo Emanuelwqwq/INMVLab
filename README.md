@@ -218,3 +218,6 @@ Logo escura ajustada com a ferramenta integrada ImageGen: `assets/projeto-logo-t
 ### Simplificação dos atalhos
 
 Removidos: leitura fácil, atalho duplicado Modo apresentação em Mais, boletins visuais e exportação CSV. Ver ambiente continua no Início; consulta por data, filtros e preferências dos cartões permanecem disponíveis. A Lumi foi ajustada para não indicar os botões removidos.
+
+
+Personalização do Início removida: gráfico, Lumi, comparações, tendências e panorama regional ficam visíveis para todos. Preferências antigas de ocultar cartões são descartadas ao abrir o site.
