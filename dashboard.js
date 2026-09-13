@@ -343,7 +343,7 @@ function updateCharts(){
   historyChart.data.labels = labels;
   historyChart.data.datasets[0].data = temps;
   historyChart.data.datasets[1].data = hums;
-  historyChart.update();
+  historyChart.update('none');
 
 }
 
@@ -487,12 +487,11 @@ function exportCsv(){ dayHistory?.exportCsv(); }
 
 function navigate(){
   const view = (location.hash || '#dashboard').slice(1);
-  const valid = ['dashboard','dados','alertas','analises','sobre','curiosidades','explorar'];
+  const valid = ['dashboard','dados','alertas','analises','sobre','projeto','curiosidades','explorar'];
   const active = valid.includes(view) ? view : 'dashboard';
   $$('.page').forEach(page => page.classList.toggle('hidden', page.dataset.view !== active));
-  $$('nav a[data-page]').forEach(link => { const selected=link.dataset.page===active||(link.dataset.page==='explorar'&&['curiosidades','sobre'].includes(active));link.classList.toggle('active',selected);if(selected)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current'); });
-  $('#menuBackdrop').hidden = true;
-  $('.sidebar').classList.remove('mobile-open');
+  $$('nav a[data-page]').forEach(link => { const selected=link.dataset.page===active||(link.dataset.page==='explorar'&&['curiosidades','sobre','projeto'].includes(active));link.classList.toggle('active',selected);if(selected)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current'); });
+  window.SidebarMenu?.closeMobile();
 
   window.StationExplorer?.onNavigate(active);
   dayHistory?.setActive(active === 'dados');
@@ -500,6 +499,33 @@ function navigate(){
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+
+function setupSidebar(){
+ const root=document.documentElement,sidebar=document.getElementById('siteSidebar'),opener=document.getElementById('sidebarOpen'),closer=document.getElementById('sidebarClose'),backdrop=document.getElementById('menuBackdrop'),mobile=matchMedia('(max-width:700px)');
+ let collapsed=root.dataset.sidebarCollapsed==='true',mobileOpen=false,resizeTimer;const inertBefore=new Map();
+ function lockBackground(lock){
+  if(lock&&!inertBefore.size){for(const element of document.body.children){if(element===sidebar||element===backdrop||element.tagName==='SCRIPT')continue;inertBefore.set(element,element.inert);element.inert=true;}}
+  else if(!lock){inertBefore.forEach((value,element)=>element.inert=value);inertBefore.clear();}
+  document.body.classList.toggle('sidebar-overlay-open',lock);
+ }
+ function render(){
+  const open=mobile.matches?mobileOpen:!collapsed;root.dataset.sidebarCollapsed=String(collapsed);root.dataset.mobileMenuOpen=String(mobile.matches&&mobileOpen);
+  sidebar.inert=!open;sidebar.setAttribute('aria-hidden',String(!open));opener.setAttribute('aria-expanded',String(open));backdrop.hidden=!(mobile.matches&&open);
+  if(mobile.matches&&open){sidebar.setAttribute('role','dialog');sidebar.setAttribute('aria-modal','true');}else{sidebar.removeAttribute('role');sidebar.removeAttribute('aria-modal');}
+  lockBackground(mobile.matches&&open);clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{window.dispatchEvent(new Event('resize'));if(typeof regionalMap!=='undefined')regionalMap?.invalidateSize({pan:false});},260);
+ }
+ function closeMobile(){if(!mobileOpen)return;mobileOpen=false;render();opener.focus({preventScroll:true});}
+ opener.addEventListener('click',()=>{if(mobile.matches)mobileOpen=true;else{collapsed=false;try{localStorage.setItem('imnvlab-sidebar-collapsed','false');}catch{}}render();closer.focus({preventScroll:true});});
+ closer.addEventListener('click',()=>{if(mobile.matches){closeMobile();return;}collapsed=true;try{localStorage.setItem('imnvlab-sidebar-collapsed','true');}catch{}render();opener.focus({preventScroll:true});});
+ backdrop.addEventListener('click',closeMobile);sidebar.addEventListener('click',event=>{if(event.target.closest('a[data-page]'))closeMobile();});
+ document.addEventListener('keydown',event=>{
+  if(!mobile.matches||!mobileOpen)return;
+  if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();closeMobile();return;}
+  if(event.key==='Tab'){const focusable=[...sidebar.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),[tabindex="0"]')].filter(e=>e.getClientRects().length);const first=focusable[0],last=focusable.at(-1);if(event.shiftKey&&(document.activeElement===first||!sidebar.contains(document.activeElement))){event.preventDefault();last?.focus();}else if(!event.shiftKey&&(document.activeElement===last||!sidebar.contains(document.activeElement))){event.preventDefault();first?.focus();}}
+ },true);
+ mobile.addEventListener('change',()=>{mobileOpen=false;render();if(sidebar.inert&&sidebar.contains(document.activeElement))opener.focus({preventScroll:true});});
+ window.SidebarMenu={closeMobile};render();
+}
 
 function showOffline(){
   updateFreshness();
@@ -521,14 +547,16 @@ function showConnecting(){
 }
 
 function start(){
+  setupSidebar();
   dayHistory = StationHistory.create({ db, firebase, comfortScore, fireRisk });
   setupCharts();
   setupRegionalMap();
   updateDayNight();
-  setInterval(() => { if(location.hash==='#analises' && !document.hidden)loadDailyAnalysis(); updateDayNight(); if (latest) { updateSensorStatus(); updateOverview(); } }, 15000);
+  setInterval(() => { if(document.hidden)return; if(location.hash==='#analises' && !document.hidden)loadDailyAnalysis(); updateDayNight(); if (latest) { updateSensorStatus(); updateOverview(); } }, 15000);
   window.addEventListener('hashchange', navigate);
   window.addEventListener('offline', showOffline);
   window.addEventListener('online', showConnecting);
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)return;updateDayNight();updateCharts();if(latest)updateCurrent();else updateFreshness();});
   navigate();
   startLocationTracking();
   $('#locationButton').addEventListener('click', startLocationTracking);
@@ -545,6 +573,7 @@ function start(){
     }).filter(item => Number.isFinite(item.temp) && item.temp>=-40 && item.temp<=80 && Number.isFinite(item.hum) && item.hum>=0 && item.hum<=100 && Number.isFinite(item.date.getTime()) && item.date.getTime()<=Date.now()+30000).sort((a,b)=>b.date-a.date);
     latest = readings[0];
     lastReadingAt = latest?.date || null;
+    if(document.hidden)return;
     updateRecentInsights();
     if (latest) {
       updateCharts();
@@ -559,7 +588,7 @@ start();
  const el=id=>document.getElementById(id), panel=el('guidePanel'), toggle=el('guideToggle'), field=el('guideText'), listen=el('guideListen');
  const normalize=text=>text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
  const dateKey=date=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Fortaleza',year:'numeric',month:'2-digit',day:'2-digit'}).format(date);
- const descriptions={dashboard:'No início você encontra temperatura, umidade e conforto. Os valores são da última medição, cujo horário aparece no painel.',dados:'Em Dados, escolha um dia da semana ou uma data. Você pode buscar um horário e exportar as medições.',alertas:'Alertas mostra as condições que precisam de atenção. Em Limites do painel você escolhe as faixas de temperatura e umidade.',analises:'Análises consulta todas as medições registradas hoje, no horário da estação. A média é por leitura e não estima os períodos sem dados.',sobre:'A estação usa um sensor para medir temperatura e umidade. O ESP32 envia as leituras pela internet para o site.'};
+ const descriptions={projeto:'Em Sobre o projeto, você conhece a proposta do IMNVLab, nossa equipe, o caminho das medições e as tecnologias usadas. Acesse pelo menu ou por Mais, no celular.',dashboard:'No início você encontra temperatura, umidade e conforto. Os valores são da última medição, cujo horário aparece no painel.',dados:'Em Dados, escolha um dia da semana ou uma data. Você pode buscar um horário e exportar as medições.',alertas:'Alertas mostra as condições que precisam de atenção. Em Limites do painel você escolhe as faixas de temperatura e umidade.',analises:'Análises consulta todas as medições registradas hoje, no horário da estação. A média é por leitura e não estima os períodos sem dados.',sobre:'A estação usa um sensor para medir temperatura e umidade. O ESP32 envia as leituras pela internet para o site.'};
  let recognition=null, timer, session=0;
  function stopListening(){session++;clearTimeout(timer);const old=recognition;recognition=null;if(old){old.onend=old.onerror=old.onresult=null;try{old.abort();}catch{}}listen.textContent=Recognition?'Falar com Lumi':'Voz indisponível';if(panel.dataset.state==='listening')panel.dataset.state='idle';}
  let speechVersion=0,voiceTimer,voices=[];
@@ -627,6 +656,7 @@ start();
  }
  function siteAnswer(text){
   const say=value=>{answer(value);return true;};
+  if(/equipe|integrantes|nosso grupo|quem (criou|desenvolveu)|como surgiu|historia do projeto/.test(text))return say('Que bom que você quer conhecer a gente! 💜 O IMNVLab é um projeto do CETI Nonato Valente que aproxima ciência e tecnologia do dia a dia. Em Sobre o projeto, contamos a proposta e o caminho das medições até o site. Os nomes e as funções de cada integrante ainda serão acrescentados. Você pode dizer “abrir sobre o projeto”.');
   if(/amanha|previsao|vai chover/.test(text))return say('Posso te ajudar com o que a estação está medindo agora! Para chuva ou amanhã, ainda não tenho uma previsão. Quer conferir temperatura e umidade?');
   if(/como.*(ambiente|clima|tempo)|ambiente.*(bom|ruim|confort|desconfort|seguro)|interpret|o que.*(dados|medicoes|numeros).*diz|o que.*(dados|medicoes).*signific|tendencia|esta (quente|frio|seco)|ar (seco|abafado)|medidas preventivas|como.*(proteger|prevenir)|o que.*(fazer|melhorar)/.test(text)){
    if(/ontem|semana passada/.test(text))return say('Para interpretar outro dia, abra Dados e selecione a data. O resumo que faço aqui usa somente as medições recentes disponíveis.');
@@ -667,7 +697,7 @@ start();
   if(/^(obrigad[oa]|valeu|obrigad[oa] lumi|muito obrigad[oa])[.!? ]*$/.test(text)){answer('Imagina! Adorei ajudar. 💜 Se surgir outra dúvida, é só me chamar. A gente descobre junto!');return;}
   if(/^(tchau|ate mais|ate logo)[.!? ]*$/.test(text)){answer('Até mais! Vou ficar por aqui. Quando voltar, podemos conferir as novas medições.');return;}
   if(/\b(cancele|cancelar|pare|parar)\b|\bnao\s+(abra|abrir|va|navegue)/.test(text)){answer('Tudo bem. Não vou navegar.');return;}
-  const pages=[[/\b(inicio|dashboard|principal)\b/,'dashboard'],[/\b(dados|historico)\b/,'dados'],[/alert/,'alertas'],[/analis/,'analises'],[/\bsobre\b|como funciona a estacao/,'sobre'],[/curiosidade|entenda o clima/,'curiosidades'],[/explorar|mais descobertas/,'explorar']].filter(([pattern])=>pattern.test(text)).map(([,page])=>page);
+  const pages=[[/\b(inicio|dashboard|principal)\b/,'dashboard'],[/\b(dados|historico)\b/,'dados'],[/alert/,'alertas'],[/analis/,'analises'],[/\bsobre\b(?!.*(?:projeto|equipe|grupo))|como funciona a estacao/,'sobre'],[/projeto|equipe|nosso grupo/,'projeto'],[/curiosidade|entenda o clima/,'curiosidades'],[/explorar|mais descobertas/,'explorar']].filter(([pattern])=>pattern.test(text)).map(([,page])=>page);
   const explain=/expli|como funciona|o que (e|sao)|ajud/.test(text), navigation=/\b(abrir|abra|abre|ir|va|ver|mostrar|mostre|mostra|consultar|leve)\b/.test(text);
   const extra=window.StationExplorer?.answer(text);if(!navigation&&extra){answer(extra);return;}
   if(!navigation&&siteAnswer(text))return;

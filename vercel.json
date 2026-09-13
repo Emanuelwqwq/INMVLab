@@ -1,6 +1,6 @@
 {
   "framework": null,
-  "buildCommand": "node -e \"f=require('fs');for(p of 'index.html styles.css dashboard.js explorer.js service-worker.js manifest.json marca-ceti.jpeg lumi.png assets'.split(' '))f.cpSync(p,'public/'+p,{recursive:true})\"",
+  "buildCommand": "node -e \"f=require('fs');for(p of 'index.html styles.css dashboard.js explorer.js service-worker.js manifest.json marca-ceti.jpeg lumi.webp assets'.split(' '))f.cpSync(p,'public/'+p,{recursive:true})\"",
   "outputDirectory": "public",
   "headers": [
     {
